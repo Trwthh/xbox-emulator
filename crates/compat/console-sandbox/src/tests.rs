@@ -119,6 +119,10 @@ fn console_path_rules_match_win32_and_ntfs() {
     assert_eq!(fs::try_resolve(r"\\.\C:").map(|r| r.0), Err(fs::STATUS_ACCESS_DENIED));
     assert_eq!(fs::try_resolve(r"\\?\\??\C:\x").map(|r| r.0), Err(fs::STATUS_OBJECT_PATH_NOT_FOUND));
     assert_eq!(fs::try_resolve("C:\\a\\b\u{1}c").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID));
+    assert_eq!(fs::try_resolve("\\\\?\\aé€x").map(|r| r.0), Err(fs::STATUS_OBJECT_PATH_NOT_FOUND));
+    assert_eq!(fs::try_resolve("\\??\\é").map(|r| r.0), Err(fs::STATUS_OBJECT_PATH_NOT_FOUND));
+    assert_eq!(fs::try_resolve("\\\\.\\é").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_NOT_FOUND));
+    assert_eq!(ok("C:\\a\\x\u{FF1A}y"), "C:\\a\\x\u{FF1A}y");
 }
 
 #[test]
@@ -153,7 +157,7 @@ fn rename_target_is_resolved_inside_the_sandbox() {
 #[test]
 fn fuzzed_console_paths_never_leave_their_drive() {
     let _g = init();
-    let alphabet = ["a", "b", "C", "D", "x", ":", "\\", "/", ".", " ", "?", "*", "CON", "..", "\\\\?\\", "\\??\\", "\\\\.\\", "C:", "d:", "$DATA", "\\..\\", "...", "nul", ". "];
+    let alphabet = ["a", "b", "C", "D", "x", ":", "\\", "/", ".", " ", "?", "*", "CON", "..", "\\\\?\\", "\\??\\", "\\\\.\\", "C:", "d:", "$DATA", "\\..\\", "...", "nul", ". ", "é", "€", "\u{FF1A}", "\u{2215}", "\u{FF3C}"];
     let mut state = 0x9e37_79b9_7f4a_7c15u64;
     let mut next = || {
         state ^= state << 13;

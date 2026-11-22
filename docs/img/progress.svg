@@ -1845,7 +1845,7 @@
 <rect x="875.00" y="880.00" width="125.00" height="60.00" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="880.00" y="896.00" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Amplification</text>
 </g>
-<text x="4.00" y="971.00" font-family="sans-serif" font-size="16" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Xbox console libraries: 98.28% (2118/2155)</text>
+<text x="4.00" y="971.00" font-family="sans-serif" font-size="16" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Xbox console libraries: 98.56% (2124/2155)</text>
 <rect x="4" y="982" width="10" height="10" fill="#2ea043"/>
 <text x="18.00" y="991.00" font-family="sans-serif" font-size="11" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">implemented</text>
 <rect x="109" y="982" width="10" height="10" fill="#388bfd"/>
@@ -1908,10 +1908,10 @@
 <rect x="0.00" y="998.00" width="300.23" height="421.48" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="5.00" y="1014.00" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">kernel32legacy</text>
 </g>
-<g><title>advapi32legacy.dll: 205/207 covered; Fortnite imports 1, Terraria imports 1, Trackmania imports 1, XDefiant imports 1</title>
-<rect x="1.00" y="1420.48" width="79.53" height="20.42" fill="#2ea043"/>
-<rect x="80.53" y="1420.48" width="19.88" height="20.42" fill="#91bffd"/>
-<rect x="100.41" y="1420.48" width="198.82" height="20.42" fill="#388bfd"/>
+<g><title>advapi32legacy.dll: 207/207 covered; Fortnite imports 1, Terraria imports 1, Trackmania imports 1, XDefiant imports 1</title>
+<rect x="1.00" y="1420.48" width="119.29" height="20.42" fill="#2ea043"/>
+<rect x="120.29" y="1420.48" width="19.88" height="20.42" fill="#91bffd"/>
+<rect x="140.17" y="1420.48" width="159.06" height="20.42" fill="#388bfd"/>
 <rect x="1.00" y="1440.91" width="298.23" height="20.42" fill="#388bfd"/>
 <rect x="1.00" y="1461.33" width="298.23" height="20.42" fill="#388bfd"/>
 <rect x="1.00" y="1481.76" width="298.23" height="20.42" fill="#388bfd"/>
@@ -1924,8 +1924,7 @@
 <rect x="1.00" y="1624.73" width="298.23" height="20.42" fill="#388bfd"/>
 <rect x="1.00" y="1645.15" width="298.23" height="20.42" fill="#388bfd"/>
 <rect x="1.00" y="1665.58" width="298.23" height="20.42" fill="#388bfd"/>
-<rect x="1.00" y="1686.00" width="198.82" height="20.42" fill="#388bfd"/>
-<rect x="199.82" y="1686.00" width="39.76" height="20.42" fill="#e3b341"/>
+<rect x="1.00" y="1686.00" width="238.59" height="20.42" fill="#388bfd"/>
 <line x1="1.00" y1="1440.91" x2="299.23" y2="1440.91" stroke="#0d1117" stroke-width="0.5"/>
 <line x1="1.00" y1="1461.33" x2="299.23" y2="1461.33" stroke="#0d1117" stroke-width="0.5"/>
 <line x1="1.00" y1="1481.76" x2="299.23" y2="1481.76" stroke="#0d1117" stroke-width="0.5"/>
@@ -2496,12 +2495,12 @@
 <rect x="862.73" y="1514.75" width="68.64" height="79.10" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="867.73" y="1530.75" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">wldp</text>
 </g>
-<g><title>advapi32.dll: 11/13 covered; not imported by an analysed title</title>
+<g><title>advapi32.dll: 13/13 covered; not imported by an analysed title</title>
 <rect x="932.36" y="1515.75" width="66.64" height="19.28" fill="#2ea043"/>
-<rect x="932.36" y="1535.03" width="66.64" height="19.28" fill="#388bfd"/>
-<rect x="932.36" y="1554.30" width="49.98" height="19.28" fill="#388bfd"/>
-<rect x="982.34" y="1554.30" width="16.66" height="19.28" fill="#e3b341"/>
-<rect x="932.36" y="1573.58" width="16.66" height="19.28" fill="#e3b341"/>
+<rect x="932.36" y="1535.03" width="33.32" height="19.28" fill="#2ea043"/>
+<rect x="965.68" y="1535.03" width="33.32" height="19.28" fill="#388bfd"/>
+<rect x="932.36" y="1554.30" width="66.64" height="19.28" fill="#388bfd"/>
+<rect x="932.36" y="1573.58" width="16.66" height="19.28" fill="#388bfd"/>
 <line x1="932.36" y1="1535.03" x2="999.00" y2="1535.03" stroke="#0d1117" stroke-width="0.5"/>
 <line x1="932.36" y1="1554.30" x2="999.00" y2="1554.30" stroke="#0d1117" stroke-width="0.5"/>
 <line x1="932.36" y1="1573.58" x2="999.00" y2="1573.58" stroke="#0d1117" stroke-width="0.5"/>
@@ -2771,10 +2770,9 @@
 <rect x="873.96" y="1701.67" width="31.51" height="39.76" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="878.96" y="1717.67" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">gam</text>
 </g>
-<g><title>KernelBase.dll: 1/3 covered; not imported by an analysed title</title>
-<rect x="906.47" y="1702.67" width="14.75" height="18.88" fill="#2ea043"/>
-<rect x="921.23" y="1702.67" width="14.75" height="18.88" fill="#e3b341"/>
-<rect x="906.47" y="1721.55" width="14.75" height="18.88" fill="#e3b341"/>
+<g><title>KernelBase.dll: 3/3 covered; not imported by an analysed title</title>
+<rect x="906.47" y="1702.67" width="29.51" height="18.88" fill="#2ea043"/>
+<rect x="906.47" y="1721.55" width="14.75" height="18.88" fill="#2ea043"/>
 <line x1="906.47" y1="1721.55" x2="935.98" y2="1721.55" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="905.47" y="1701.67" width="31.51" height="39.76" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="910.47" y="1717.67" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Ker</text>

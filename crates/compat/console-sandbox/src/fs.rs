@@ -138,7 +138,7 @@ pub fn try_resolve(console: &str) -> Result<(String, PathBuf), u32> {
         return Err(STATUS_OBJECT_NAME_INVALID);
     }
     let (drive, comps) = if let Some(r) = s.strip_prefix("\\\\?\\").or_else(|| s.strip_prefix("\\??\\")) {
-        if r.len() >= 4 && r[..4].eq_ignore_ascii_case("UNC\\") {
+        if r.as_bytes().get(..4).is_some_and(|p| p.eq_ignore_ascii_case(b"UNC\\")) {
             return Err(STATUS_BAD_NETWORK_PATH);
         }
         let d = drive_of(r).ok_or(STATUS_OBJECT_PATH_NOT_FOUND)?;

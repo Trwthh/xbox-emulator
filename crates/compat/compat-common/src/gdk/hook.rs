@@ -511,4 +511,38 @@ mod emulated_hklm_tests {
         assert!(emulated_open_at(&root, 0xffff_ffff_8000_0002, emureg::IMAGE_CUSTOMIZATION_KEY, None).is_some());
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn reg_hooks_serve_hkcu_families_in_console_mode() {
+        let root = std::env::temp_dir().join(format!("tombox_cc_hookroot_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::env::set_var("TOMBOX_GDK_ROOT", &root);
+        let me = emureg::effective_user().unwrap();
+        let rel = format!("{}\\Hook_8wekyb3d8bbwe\\Hook_1.0.0.0_x64__8wekyb3d8bbwe", emureg::FAMILIES);
+        let pkg = format!("{me}\\{rel}");
+        emureg::create_key(&root, Hive::Hku, &pkg).unwrap();
+        emureg::set_value(&root, Hive::Hku, &pkg, "InstallTime", emureg::REG_QWORD, &0x1122_3344_5566_7788u64.to_le_bytes()).unwrap();
+        let prev = CONSOLE_MODE.swap(0x64, Ordering::Relaxed);
+        unsafe {
+            let mut h = 0usize;
+            assert_eq!(reg_open_ex_hook(0xffff_ffff_8000_0001, w(&rel).as_ptr(), 0, 0x20019, &mut h), 0);
+            assert!(is_emulated_handle(h));
+            let (mut kind, mut cb, mut v) = (0u32, 8u32, 0u64);
+            assert_eq!(reg_query_hook(h, w("InstallTime").as_ptr(), core::ptr::null_mut(), &mut kind, &mut v as *mut u64 as *mut u8, &mut cb), 0);
+            assert_eq!((kind, cb, v), (emureg::REG_QWORD, 8, 0x1122_3344_5566_7788));
+            assert_eq!(reg_close_hook(h), 0);
+            let mut h2 = 0usize;
+            assert_eq!(reg_open_hook(0xffff_ffff_8000_0003, w(&format!("{me}\\{}\\Missing_8wekyb3d8bbwe", emureg::FAMILIES)).as_ptr(), &mut h2), 2);
+            let mut fam = 0usize;
+            assert_eq!(reg_open_ex_hook(0xffff_ffff_8000_0003, w(&format!("{me}\\{}", emureg::FAMILIES)).as_ptr(), 0, 0x20019, &mut fam), 0);
+            let mut child = 0usize;
+            assert_eq!(reg_open_ex_hook(fam, w("Hook_8wekyb3d8bbwe\\Hook_1.0.0.0_x64__8wekyb3d8bbwe").as_ptr(), 0, 0x20019, &mut child), 0);
+            assert_eq!(reg_query_hook(child, w("InstallTime").as_ptr(), core::ptr::null_mut(), &mut kind, core::ptr::null_mut(), &mut cb), 0);
+            assert_eq!(cb, 8);
+            assert_eq!(reg_close_hook(child), 0);
+            assert_eq!(reg_close_hook(fam), 0);
+        }
+        CONSOLE_MODE.store(prev, Ordering::Relaxed);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

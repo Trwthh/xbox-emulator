@@ -178,3 +178,55 @@ fn failed_registry_write_maps_like_the_console_server() {
     assert!(st < 0 && (st as u32) & 0xffff_0000 == 0xC007_0000, "{st:#x}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[link(name = "advapi32")]
+extern "system" {
+    fn OpenProcessToken(process: isize, access: u32, token: *mut isize) -> i32;
+    fn CreateRestrictedToken(existing: isize, flags: u32, disable_count: u32, disable: *const [usize; 2], delete_count: u32, delete: *const u8, restrict_count: u32, restrict: *const u8, out: *mut isize) -> i32;
+    fn DuplicateToken(existing: isize, level: u32, out: *mut isize) -> i32;
+    fn SetThreadToken(thread: *const isize, token: isize) -> i32;
+    fn RevertToSelf() -> i32;
+    fn ConvertStringSidToSidW(s: *const u16, sid: *mut *mut u8) -> i32;
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetCurrentProcess() -> isize;
+    fn CloseHandle(h: isize) -> i32;
+    fn LocalFree(p: *mut u8) -> *mut u8;
+}
+
+#[test]
+fn real_caller_token_without_authenticated_users_is_denied_end_to_end() {
+    let d = temp("restricted");
+    std::env::set_var("TOMBOX_GDK_ROOT", &d);
+    let h = Hklm::at(d.join("hklm"));
+    unsafe {
+        let mut proc_tok = 0isize;
+        assert_ne!(OpenProcessToken(GetCurrentProcess(), 0x000b, &mut proc_tok), 0);
+        let mut sid: *mut u8 = core::ptr::null_mut();
+        let s: Vec<u16> = SID_AUTHENTICATED_USERS.encode_utf16().chain(Some(0)).collect();
+        assert_ne!(ConvertStringSidToSidW(s.as_ptr(), &mut sid), 0);
+        let disable = [sid as usize, 0usize];
+        let mut restricted = 0isize;
+        assert_ne!(CreateRestrictedToken(proc_tok, 0, 1, &disable, 0, core::ptr::null(), 0, core::ptr::null(), &mut restricted), 0);
+        let mut imp = 0isize;
+        assert_ne!(DuplicateToken(restricted, 2, &mut imp), 0);
+        assert_ne!(SetThreadToken(core::ptr::null(), imp), 0);
+        let t = TitleToken::caller();
+        let st = lsarpc_call(&h, OPNUM_ENABLE, &CallAttributes::console_client(OPNUM_ENABLE), &t);
+        let exported = LsaEnablePasswordLessCurrentUser();
+        assert_ne!(RevertToSelf(), 0);
+        assert!(!t.check_membership(SID_AUTHENTICATED_USERS), "{t:?}");
+        assert_eq!(st, 0xC000_0022u32 as i32);
+        assert_eq!(exported, 0xC000_0022u32 as i32);
+        assert!(h.get_dword(DEVICE_KEY, DEVICE_VALUE).is_err());
+        let after = TitleToken::caller();
+        assert!(after.check_membership(SID_AUTHENTICATED_USERS));
+        LocalFree(sid);
+        CloseHandle(imp);
+        CloseHandle(restricted);
+        CloseHandle(proc_tok);
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
