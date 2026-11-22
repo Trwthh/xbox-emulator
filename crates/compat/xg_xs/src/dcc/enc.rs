@@ -312,10 +312,62 @@ pub(crate) fn color_in(d: &mut Dcc, t: &mut Tmp) -> Result<(), i32> {
     color(d)?;
     if cm != 1 {
         t.b[56..64].copy_from_slice(&8u64.to_le_bytes());
+        t.b[54] = 0;
+        t.b[55] = 0;
         for p in 0..64 {
-            t.ever[p] = p >= 56 || (t.ever[p] && (16..48).contains(&p));
+            t.ever[p] = p >= 54 || (t.ever[p] && (16..48).contains(&p));
         }
     }
+    Ok(())
+}
+
+pub(crate) fn channel_in(d: &mut Dcc, t: &mut Tmp) -> Result<(), i32> {
+    let v48 = d.r32(0x48);
+    channel(d)?;
+    if v48 != 0 && v48 != 0xc {
+        t.ever = [false; 64];
+        for p in [39usize, 44, 45, 46, 47, 54, 55] {
+            t.b[p] = 0;
+            t.ever[p] = true;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn conv_residue(p: Option<usize>) -> ([u8; 64], [bool; 64]) {
+    let mut b = [0u8; 64];
+    b[0] = 0x3d;
+    b[8..16].fill(0xff);
+    b[48] = 0x3d;
+    b[56] = 0x32;
+    let mut k = [true; 64];
+    match p {
+        Some(v) => b[16..24].copy_from_slice(&(v as u64).to_le_bytes()),
+        None => k[16..22].fill(false),
+    }
+    (b, k)
+}
+
+pub(crate) fn run_model(d: &mut Dcc, fills: &[[u8; 64]; 3], conv: &[u8; 64]) -> Result<(), i32> {
+    d.w64(0x13c0, 0);
+    d.w32(0xf0, 0);
+    let mut t = Tmp::with(Some(fills[0]));
+    relay_in(d, 2, 0, 1, &mut t)?;
+    clear_detect(d)?;
+    channel_in(d, &mut t)?;
+    signfix(d)?;
+    t.fill = Some(fills[1]);
+    relay_in(d, 2, 2, 2, &mut t)?;
+    color_in(d, &mut t)?;
+    t.fill = Some(fills[2]);
+    relay_in(d, 2, 2, 3, &mut t)?;
+    delta(d)?;
+    vrs_with(d, Some(*conv))?;
+    choose(d)?;
+    far(d)?;
+    subbed(d)?;
+    plan(d)?;
+    pack(d)?;
     Ok(())
 }
 
@@ -576,7 +628,7 @@ pub(crate) fn vrs_with(d: &mut Dcc, fill: Option<[u8; 64]>) -> Result<bool, i32>
 }
 
 fn vrs_body(d: &mut Dcc, fill: Option<[u8; 64]>) -> Result<bool, i32> {
-    let mut t = Tmp::with(fill);
+    let mut hit = false;
     let fl = variant_flag(d);
     d.w8(0x394, fl);
     let top = if fl != 0 { 3usize } else { 0 };
@@ -596,7 +648,9 @@ fn vrs_body(d: &mut Dcc, fill: Option<[u8; 64]>) -> Result<bool, i32> {
             _ => (0, 4),
         };
         d.w32(0x12c0, val);
+        let mut t = Tmp::with(fill);
         tid_in(d, &mut t)?;
+        hit |= t.hit;
         let o = 0xb99 + v * 0x100;
         let b = d.b[2];
         d.m[o..o + 256].copy_from_slice(&b);
@@ -609,7 +663,7 @@ fn vrs_body(d: &mut Dcc, fill: Option<[u8; 64]>) -> Result<bool, i32> {
             d.m[0x10dc + 32 * v + e as usize] = a as u8;
         }
     }
-    Ok(t.hit)
+    Ok(hit)
 }
 
 pub(crate) fn choose(d: &mut Dcc) -> Result<(), i32> {

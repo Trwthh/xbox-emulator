@@ -21,6 +21,12 @@ pub const GET_SIMPLE_MUTE: u32 = 0x17;
 pub const SET_SIMPLE_MUTE: u32 = 0x18;
 pub const RELEASE_OBJECT: u32 = 0x2e;
 pub const DEVICE_GET_STATE: u32 = 0x28;
+pub const ENUMERATOR_RESET: u32 = 0x23;
+pub const DEVICE_GET_ID: u32 = 0x27;
+pub const DEVICE_ID_CHARS: usize = 0x82;
+pub const DEVICE_ID_COUNT: usize = 0x104;
+pub const EVENT_KIND_SRA: u32 = 1;
+pub const EVENT_KIND_GAMECORE: u32 = 2;
 pub const SET_ENDPOINT_VOLUME_SCALAR: u32 = 0x53;
 pub const GET_ENDPOINT_VOLUME_SCALAR: u32 = 0x55;
 pub const SET_ENDPOINT_MUTE: u32 = 0x5a;
@@ -115,8 +121,8 @@ fn align_up(v: u32, a: u32) -> u32 {
     (v + a - 1) & !(a - 1)
 }
 
-pub fn event_name(id: u32) -> String {
-    format!("{}{id}", crate::vab::SRA_BASE)
+pub fn event_name(index: u16) -> String {
+    format!("{}{index}", crate::vab::SRA_BASE)
 }
 
 pub struct Layout {
@@ -189,6 +195,7 @@ unsafe fn dispatch(id: u32, object: u32, a: *mut u8, room: usize) -> i32 {
                 return E_INVALIDARG;
             }
             let kind: u32 = rd(a, 0);
+            let flag: u32 = rd(a, 4);
             let mut s = state();
             let n = s.next;
             s.next += 1;
@@ -196,7 +203,7 @@ unsafe fn dispatch(id: u32, object: u32, a: *mut u8, room: usize) -> i32 {
             compat_common::record_raw("crossvm-audio", "CreateObject", &format!("type {kind:#x} -> object {n:#x}"));
             core::ptr::write_bytes(a, 0, 0x10);
             wr(a, 0, if kind < MAX_OBJECT_TYPE { kind } else { 0 });
-            wr(a, 4, 0u32);
+            wr(a, 4, if flag <= 1 { flag } else { 0 });
             wr(a, 0xc, n);
             S_OK
         }
@@ -285,6 +292,17 @@ unsafe fn dispatch(id: u32, object: u32, a: *mut u8, room: usize) -> i32 {
             wr(a, 0, m as u32);
             S_OK
         }
+        ENUMERATOR_RESET => S_OK,
+        DEVICE_GET_ID => match wasapi::device_id() {
+            Ok(id) => {
+                let w: Vec<u16> = id.encode_utf16().take(DEVICE_ID_CHARS - 1).chain(Some(0)).collect();
+                core::ptr::write_bytes(a, 0, DEVICE_ID_COUNT + 8);
+                core::ptr::copy_nonoverlapping(w.as_ptr() as *const u8, a, w.len() * 2);
+                wr(a, DEVICE_ID_COUNT, (w.len() * 2) as u64);
+                S_OK
+            }
+            Err(hr) => hr,
+        },
         DEVICE_GET_STATE => {
             wr(a, 0, if wasapi::device_info().is_ok() { 1u32 } else { 4u32 });
             S_OK
@@ -345,7 +363,7 @@ unsafe fn initialize(object: u32, a: *mut u8, room: usize) -> i32 {
         s.next_event += 1;
         s.next_event
     };
-    let name = event_name(event_id);
+    let name = event_name(event_id as u16);
     let event = match crate::vab::create_event(&name) {
         Ok(h) => h,
         Err(e) => {
@@ -359,7 +377,7 @@ unsafe fn initialize(object: u32, a: *mut u8, room: usize) -> i32 {
     wr(a, INIT_FRAMES, frames);
     wr(a, INIT_PERIOD, dev.default_period);
     wr(a, INIT_LATENCY, dev.default_period);
-    write_event_descriptor(a.add(INIT_EVENT1), event_id);
+    write_event_descriptor(a.add(INIT_EVENT1), EVENT_KIND_SRA, event_id as u16);
     wr(a, INIT_EVENT2, KIND_NONE);
     wr(a, INIT_EVENT3, KIND_NONE);
     wr(a, INIT_MEMORY, KIND_CROSS_VM_MEMORY);
@@ -373,12 +391,12 @@ unsafe fn initialize(object: u32, a: *mut u8, room: usize) -> i32 {
     S_OK
 }
 
-pub unsafe fn write_event_descriptor(p: *mut u8, event_id: u32) {
+pub unsafe fn write_event_descriptor(p: *mut u8, kind: u32, index: u16) {
     wr(p, 0, KIND_CROSS_VM_EVENT);
     core::ptr::copy_nonoverlapping(guid_bytes(&CLSID_XVM_EVENT).as_ptr(), p.add(4), 16);
     core::ptr::copy_nonoverlapping(guid_bytes(&GUID_XVM_EVENT).as_ptr(), p.add(0x14), 16);
-    wr(p, 0x24, event_id);
-    wr(p, 0x28, 0u16);
+    wr(p, 0x24, kind);
+    wr(p, 0x28, index);
 }
 
 pub fn stream_info(object: u32) -> Option<(usize, u16, u32, String, i64)> {

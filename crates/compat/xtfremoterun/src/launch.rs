@@ -1,4 +1,5 @@
 use crate::console::{ck, w};
+use crate::variant::ConsoleCopy;
 use crate::win::*;
 use core::ffi::c_void;
 use core::ptr::{null, null_mut};
@@ -24,26 +25,22 @@ fn norm(p: &str) -> String {
     p.replace('/', "\\").to_ascii_lowercase()
 }
 
-pub fn register_job(name: &str, job: HANDLE) {
+pub(crate) fn register_job(name: &str, job: HANDLE) {
     let mut j = JOBS.lock().unwrap_or_else(|e| e.into_inner());
     j.retain(|(n, _)| n != name);
     j.push((name.to_string(), job as usize));
 }
 
-pub fn unregister_job(name: &str) {
+#[cfg(test)]
+pub(crate) fn unregister_job(name: &str) {
     JOBS.lock().unwrap_or_else(|e| e.into_inner()).retain(|(n, _)| n != name);
 }
 
-pub fn register_image(console_path: &str, host: PathBuf) {
+pub(crate) fn register_image(console_path: &str, host: PathBuf) {
     let key = norm(console_path);
     let mut i = IMAGES.lock().unwrap_or_else(|e| e.into_inner());
     i.retain(|(n, _)| *n != key);
     i.push((key, host));
-}
-
-pub fn unregister_image(console_path: &str) {
-    let key = norm(console_path);
-    IMAGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|(n, _)| *n != key);
 }
 
 unsafe fn duplicate(h: usize) -> Result<HANDLE, u32> {
@@ -138,15 +135,16 @@ fn hr_last() -> HRESULT {
     last_error_or_fail()
 }
 
-pub unsafe fn remote_run_create_process(cmd: *const u16, wd: *const u16, flags: u32, si: *mut StartupInfoExW, pi: *mut ProcessInformation) -> HRESULT {
+pub unsafe fn remote_run_create_process(copy: ConsoleCopy, cmd: *const u16, wd: *const u16, flags: u32, si: *mut StartupInfoExW, pi: *mut ProcessInformation) -> HRESULT {
     const F: &str = "RemoteRunCreateProcess";
+    crate::title::ensure();
     *pi = ProcessInformation::zeroed();
     let default_wd = w(DEFAULT_WORKING_DIRECTORY);
     let wd = if wd.is_null() || *wd == 0 { default_wd.as_ptr() } else { wd };
     let command = expand_environment_strings(cmd);
-    ck(F, 432, "strCommandLine.ExpandEnvironmentStrings(pszCommandLine)", S_OK, "");
+    ck(F, copy.create_process_line(432), "strCommandLine.ExpandEnvironmentStrings(pszCommandLine)", S_OK, "");
     let directory = expand_environment_strings(wd);
-    ck(F, 433, "strWorkingDirectory.ExpandEnvironmentStrings(pszWorkingDirectory)", S_OK, "");
+    ck(F, copy.create_process_line(433), "strWorkingDirectory.ExpandEnvironmentStrings(pszWorkingDirectory)", S_OK, "");
     let mut tools = flags & RUN_FLAG_TOOLS_JOB != 0;
     let nt_job = loop {
         let (status, h) = nt_open_job_object(if tools { NT_TOOLS_JOB } else { NT_TITLE_JOB });
@@ -159,8 +157,8 @@ pub unsafe fn remote_run_create_process(cmd: *const u16, wd: *const u16, flags: 
         }
         break OwnedHandle(h);
     };
-    let host_job = OwnedHandle(open_job_object_w(if tools { HOST_TOOLS_JOB } else { HOST_TITLE_JOB }));
-    if host_job.get().is_null() {
+    let host_job = if copy.has_host_jobs() { OwnedHandle(open_job_object_w(if tools { HOST_TOOLS_JOB } else { HOST_TITLE_JOB })) } else { OwnedHandle::null() };
+    if copy.has_host_jobs() && host_job.get().is_null() {
         let hr = hr_from_wait(xtfmsg::sys::GetLastError());
         ck(F, 503, "HRESULT_FROM_WIN32(GetLastError())", hr, "");
         if hr < 0 {
@@ -175,7 +173,8 @@ pub unsafe fn remote_run_create_process(cmd: *const u16, wd: *const u16, flags: 
     }
     let hr = 'attr: {
         let jobs: [HANDLE; 2] = [nt_job.get(), host_job.get()];
-        if UpdateProcThreadAttribute(list_ptr, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, jobs.as_ptr() as *const c_void, 0x10, null_mut(), null_mut()) == 0 {
+        let list_bytes = if copy.has_host_jobs() { 2 * core::mem::size_of::<HANDLE>() } else { core::mem::size_of::<HANDLE>() };
+        if UpdateProcThreadAttribute(list_ptr, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, jobs.as_ptr() as *const c_void, list_bytes, null_mut(), null_mut()) == 0 {
             break 'attr hr_last();
         }
         (*si).attribute_list = list_ptr;

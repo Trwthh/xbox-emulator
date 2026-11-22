@@ -118,8 +118,8 @@ unsafe extern "system" fn qi(this: *mut c_void, iid: *const Guid, out: *mut *mut
         return E_INVALIDARG;
     }
     let own = (*(this as *const Obj)).iid;
-    let inspectable = own == IID_DISPLAY_MODE_SERVER3 && *iid == IID_IINSPECTABLE;
-    if *iid == IID_IUNKNOWN || *iid == own || inspectable {
+    let inspectable = (own == IID_DISPLAY_MODE_SERVER3 || own == IID_NET_SECURITY || own == IID_NET_SECURITY_RESULT) && *iid == IID_IINSPECTABLE;
+    if *iid == IID_IUNKNOWN || *iid == own || inspectable || *iid == IID_IAGILE_OBJECT {
         add_ref(this);
         *out = this;
         return S_OK;
@@ -218,6 +218,12 @@ fn served(clsid: &Guid, iid: &Guid) -> Option<&'static Holder> {
         Some(&AUDIO)
     } else if *clsid == ID_CURSOR_CONTROLLER {
         Some(&CURSOR)
+    } else if *clsid == CLSID_PACKAGE_V7 && *iid == IID_PACKAGE_V7 {
+        Some(&PACKAGE_V7)
+    } else if *clsid == CLSID_PACKAGE_AUX && *iid == IID_PACKAGE_AUX {
+        Some(&PACKAGE_AUX)
+    } else if *clsid == CLSID_NET_SECURITY {
+        Some(&NET_SECURITY)
     } else {
         None
     }
@@ -509,4 +515,200 @@ pub unsafe extern "system" fn co_create_instance_ex(clsid: *const Guid, outer: *
         return host_activate(clsid, outer, n, mqi);
     }
     CoCreateInstanceEx(clsid, outer, ctx, si, n, mqi)
+}
+
+pub const IID_IAGILE_OBJECT: Guid = Guid { data1: 0x94EA2B94, data2: 0xE9CC, data3: 0x49E0, data4: [0xC0, 0xFF, 0xEE, 0x64, 0xCA, 0x8F, 0x5B, 0x90] };
+pub const CLSID_PACKAGE_V7: Guid = Guid { data1: 0xE97EABA8, data2: 0x9BCD, data3: 0x4930, data4: [0x99, 0x2E, 0x2A, 0xDC, 0x66, 0x17, 0x68, 0x17] };
+pub const IID_PACKAGE_V7: Guid = Guid { data1: 0x01958D59, data2: 0x8ABB, data3: 0x4DB9, data4: [0xB8, 0xB7, 0x17, 0x34, 0x5B, 0xE2, 0xE9, 0xFF] };
+pub const CLSID_PACKAGE_AUX: Guid = Guid { data1: 0x1CD4BEF6, data2: 0xAEB3, data3: 0x41D7, data4: [0xAB, 0xBC, 0x61, 0xC3, 0x5C, 0xCB, 0xD4, 0xAD] };
+pub const IID_PACKAGE_AUX: Guid = Guid { data1: 0xD657678E, data2: 0x9088, data3: 0x4EDD, data4: [0xA3, 0x9F, 0x23, 0x4A, 0xAF, 0x6B, 0xEB, 0xFF] };
+pub const CLSID_NET_SECURITY: Guid = Guid { data1: 0x006DCD63, data2: 0x380F, data3: 0x41BF, data4: [0x9F, 0x85, 0xCF, 0x21, 0xBC, 0x47, 0x69, 0x55] };
+pub const IID_NET_SECURITY: Guid = Guid { data1: 0x06C45D2E, data2: 0xECC6, data3: 0x4589, data4: [0xAD, 0x95, 0x01, 0x94, 0x37, 0x35, 0x9C, 0xFD] };
+pub const IID_NET_SECURITY_RESULT: Guid = Guid { data1: 0x7DC51C93, data2: 0xE1B7, data3: 0x4A12, data4: [0x94, 0x77, 0x77, 0x4F, 0x33, 0xB2, 0x8D, 0xB0] };
+pub const TLS_FLAGS: u32 = 0x0000_0800 | 0x0000_2000;
+pub const PACKAGE_V7_SLOTS: usize = 32;
+pub const PACKAGE_AUX_SLOTS: usize = 11;
+
+#[link(name = "runtimeobject")]
+extern "system" {
+    fn WindowsCreateString(s: *const u16, len: u32, out: *mut *mut c_void) -> i32;
+    fn WindowsGetStringRawBuffer(h: *mut c_void, len: *mut u32) -> *const u16;
+}
+
+static PACKAGE_V7_REFS: AtomicU32 = AtomicU32::new(0);
+static PACKAGE_AUX_REFS: AtomicU32 = AtomicU32::new(0);
+static NET_SECURITY_REFS: AtomicU32 = AtomicU32::new(0);
+static NET_RESULT_REFS: AtomicU32 = AtomicU32::new(0);
+
+macro_rules! unserved {
+    ($name:ident, $iface:literal, $slot:literal) => {
+        unsafe extern "system" fn $name(_this: *mut c_void) -> i32 {
+            compat_common::record_raw("gamecore-host", $iface, concat!("slot ", $slot, " has no decoded meaning; E_NOTIMPL"));
+            E_NOTIMPL
+        }
+    };
+}
+
+unserved!(v7_3, "PackageV7", 3);
+unserved!(v7_4, "PackageV7", 4);
+unserved!(v7_5, "PackageV7", 5);
+unserved!(v7_6, "PackageV7", 6);
+unserved!(v7_7, "PackageV7", 7);
+unserved!(v7_8, "PackageV7", 8);
+unserved!(v7_9, "PackageV7", 9);
+unserved!(v7_10, "PackageV7", 10);
+unserved!(v7_12, "PackageV7", 12);
+unserved!(v7_13, "PackageV7", 13);
+unserved!(v7_14, "PackageV7", 14);
+unserved!(v7_15, "PackageV7", 15);
+unserved!(v7_16, "PackageV7", 16);
+unserved!(v7_17, "PackageV7", 17);
+unserved!(v7_18, "PackageV7", 18);
+unserved!(v7_19, "PackageV7", 19);
+unserved!(v7_20, "PackageV7", 20);
+unserved!(v7_21, "PackageV7", 21);
+unserved!(v7_22, "PackageV7", 22);
+unserved!(v7_23, "PackageV7", 23);
+unserved!(v7_24, "PackageV7", 24);
+unserved!(v7_25, "PackageV7", 25);
+unserved!(v7_28, "PackageV7", 28);
+unserved!(v7_29, "PackageV7", 29);
+unserved!(v7_30, "PackageV7", 30);
+unserved!(v7_31, "PackageV7", 31);
+unserved!(aux_3, "PackageAux", 3);
+unserved!(aux_4, "PackageAux", 4);
+unserved!(aux_5, "PackageAux", 5);
+unserved!(aux_6, "PackageAux", 6);
+unserved!(aux_7, "PackageAux", 7);
+unserved!(aux_8, "PackageAux", 8);
+unserved!(aux_9, "PackageAux", 9);
+unserved!(aux_10, "PackageAux", 10);
+
+unsafe fn wide_text(p: *const u16) -> Option<String> {
+    if p.is_null() {
+        return None;
+    }
+    let mut n = 0;
+    while *p.add(n) != 0 {
+        n += 1;
+    }
+    Some(String::from_utf16_lossy(core::slice::from_raw_parts(p, n)))
+}
+
+unsafe fn hstring(s: &str) -> Result<*mut c_void, i32> {
+    let w: Vec<u16> = s.encode_utf16().collect();
+    let mut h = core::ptr::null_mut();
+    let hr = WindowsCreateString(w.as_ptr(), w.len() as u32, &mut h);
+    if hr < 0 { Err(hr) } else { Ok(h) }
+}
+
+pub fn package_known(pkg: Option<String>) -> bool {
+    pkg.map(|p| p.eq_ignore_ascii_case(&compat_common::gdk::package::package_id())).unwrap_or(false)
+}
+
+#[repr(C)]
+pub struct DownloadEstimate {
+    pub bytes: u64,
+    pub confirm: u32,
+}
+
+unsafe extern "system" fn v7_estimate(_this: *mut c_void, pkg: *const u16, _n: u32, _sel: *const c_void, out: *mut DownloadEstimate) -> i32 {
+    if out.is_null() {
+        return E_POINTER;
+    }
+    if !package_known(wide_text(pkg)) {
+        return compat_common::gdk::E_NOT_FOUND;
+    }
+    *out = DownloadEstimate { bytes: 0, confirm: 0 };
+    compat_common::record_raw("gamecore-host", "PackageV7", "slot 11 estimate download size: the package is fully installed, 0 bytes");
+    S_OK
+}
+
+unsafe extern "system" fn v7_mount(_this: *mut c_void, pkg: *const u16, _kind: i32, out: *mut *mut c_void) -> i32 {
+    if out.is_null() {
+        return E_POINTER;
+    }
+    *out = core::ptr::null_mut();
+    if !package_known(wide_text(pkg)) {
+        return compat_common::gdk::E_NOT_FOUND;
+    }
+    let path = compat_common::gdk::package::mount_path();
+    match hstring(&path) {
+        Ok(h) => {
+            *out = h;
+            compat_common::record_raw("gamecore-host", "PackageV7", &format!("slot 26 mount -> {path}"));
+            S_OK
+        }
+        Err(hr) => hr,
+    }
+}
+
+unsafe extern "system" fn v7_close_mount(_this: *mut c_void, pkg: *const u16) -> i32 {
+    if !package_known(wide_text(pkg)) {
+        return compat_common::gdk::E_NOT_FOUND;
+    }
+    S_OK
+}
+
+static PACKAGE_V7_VT: Vt<PACKAGE_V7_SLOTS> = Vt([
+    qi as *const (), add_ref as *const (), release as *const (),
+    v7_3 as *const (), v7_4 as *const (), v7_5 as *const (), v7_6 as *const (), v7_7 as *const (), v7_8 as *const (), v7_9 as *const (), v7_10 as *const (),
+    v7_estimate as *const (), v7_12 as *const (), v7_13 as *const (), v7_14 as *const (), v7_15 as *const (), v7_16 as *const (), v7_17 as *const (), v7_18 as *const (),
+    v7_19 as *const (), v7_20 as *const (), v7_21 as *const (), v7_22 as *const (), v7_23 as *const (), v7_24 as *const (), v7_25 as *const (),
+    v7_mount as *const (), v7_close_mount as *const (), v7_28 as *const (), v7_29 as *const (), v7_30 as *const (), v7_31 as *const (),
+]);
+static PACKAGE_V7: Holder = Holder(Obj { vt: PACKAGE_V7_VT.0.as_ptr(), refs: &PACKAGE_V7_REFS, iid: IID_PACKAGE_V7 });
+
+static PACKAGE_AUX_VT: Vt<PACKAGE_AUX_SLOTS> = Vt([
+    qi as *const (), add_ref as *const (), release as *const (),
+    aux_3 as *const (), aux_4 as *const (), aux_5 as *const (), aux_6 as *const (), aux_7 as *const (), aux_8 as *const (), aux_9 as *const (), aux_10 as *const (),
+]);
+static PACKAGE_AUX: Holder = Holder(Obj { vt: PACKAGE_AUX_VT.0.as_ptr(), refs: &PACKAGE_AUX_REFS, iid: IID_PACKAGE_AUX });
+
+unsafe extern "system" fn net_query(_this: *mut c_void, url: *mut c_void, _a: u64, _b: u64, out: *mut *mut c_void) -> i32 {
+    if out.is_null() {
+        return E_POINTER;
+    }
+    let mut n = 0u32;
+    let text = if url.is_null() { String::new() } else { String::from_utf16_lossy(core::slice::from_raw_parts(WindowsGetStringRawBuffer(url, &mut n), n as usize)) };
+    compat_common::record_raw("gamecore-host", "NetSecurity", &format!("slot 6 '{text}' -> TLS1.2/1.3, no pinning (offline, same values as gdk net.rs)"));
+    *out = obj(&NET_RESULT);
+    S_OK
+}
+
+unsafe extern "system" fn net_result_flags(_this: *mut c_void, out: *mut [u32; 4]) -> i32 {
+    if out.is_null() {
+        return E_POINTER;
+    }
+    *out = [TLS_FLAGS, 0, 0, 0];
+    S_OK
+}
+
+unsafe extern "system" fn net_result_list(_this: *mut c_void, count: *mut usize, items: *mut *mut c_void) -> i32 {
+    if count.is_null() || items.is_null() {
+        return E_POINTER;
+    }
+    *count = 0;
+    *items = core::ptr::null_mut();
+    S_OK
+}
+
+unsafe extern "system" fn net_result_bool(_this: *mut c_void, out: *mut u8) -> i32 {
+    if out.is_null() {
+        return E_POINTER;
+    }
+    *out = 0;
+    S_OK
+}
+
+static NET_SECURITY_VT: Vt<7> = Vt([qi as *const (), add_ref as *const (), release as *const (), get_iids as *const (), get_runtime_class_name as *const (), get_trust_level as *const (), net_query as *const ()]);
+static NET_SECURITY: Holder = Holder(Obj { vt: NET_SECURITY_VT.0.as_ptr(), refs: &NET_SECURITY_REFS, iid: IID_NET_SECURITY });
+static NET_RESULT_VT: Vt<13> = Vt([
+    qi as *const (), add_ref as *const (), release as *const (), get_iids as *const (), get_runtime_class_name as *const (), get_trust_level as *const (),
+    net_result_flags as *const (), net_result_list as *const (), net_result_bool as *const (), net_result_list as *const (), net_result_list as *const (), net_result_bool as *const (), net_result_list as *const (),
+]);
+static NET_RESULT: Holder = Holder(Obj { vt: NET_RESULT_VT.0.as_ptr(), refs: &NET_RESULT_REFS, iid: IID_NET_SECURITY_RESULT });
+
+pub fn server_refs() -> [u32; 4] {
+    [&PACKAGE_V7_REFS, &PACKAGE_AUX_REFS, &NET_SECURITY_REFS, &NET_RESULT_REFS].map(|r| r.load(Ordering::SeqCst))
 }

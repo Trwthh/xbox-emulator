@@ -15,6 +15,7 @@ path = "src/lib.rs"
 xtfcommon = { path = "../xtfcommon" }
 xtfmsg = { path = "../xtfmsg" }
 console-sandbox = { path = "../console-sandbox" }
+compat-common = { path = "../compat-common" }
 
 [build-dependencies]
 xtfcommon = { path = "../xtfcommon" }

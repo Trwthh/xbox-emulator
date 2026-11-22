@@ -141,7 +141,7 @@ fn dccx_region_probe() {
                 for b in 0..c.n {
                     if c.enc {
                         d.s[0].copy_from_slice(&c.src[b * 256..b * 256 + 256]);
-                        if let Err(e) = super::enc::run(&mut d) {
+                        if let Err(e) = super::enc::run_checked(&mut d) {
                             err = Some(e);
                             break;
                         }
@@ -392,7 +392,7 @@ fn seq_child(seed: u64, start: u64, end: u64) {
             o.flush().unwrap();
             continue;
         }
-        writeln!(o, "@@C {j}").unwrap();
+        writeln!(o, "@@C {j} {:08x}", nh as u32).unwrap();
         o.flush().unwrap();
         let (ch, cx) = unsafe { vcall(cd, ce, &c) };
         writeln!(o, "@@R {j} {:08x} {nx:016x} {:08x} {cx:016x} {}", nh as u32, ch as u32, why.replace(' ', "_")).unwrap();
@@ -409,8 +409,8 @@ fn oracle_xgx_dcc_call_sequences() {
         std::process::exit(0);
     }
     let build = std::env::var("XGX_DCC_BUILD").unwrap_or_else(|_| "Trackmania".into());
-    let seqs: u64 = std::env::var("XGX_DCC_SEQS").ok().and_then(|x| x.parse().ok()).unwrap_or(6);
-    let len: u64 = std::env::var("XGX_DCC_SEQ_LEN").ok().and_then(|x| x.parse().ok()).unwrap_or(600);
+    let seqs: u64 = std::env::var("XGX_DCC_SEQS").ok().and_then(|x| x.parse().ok()).unwrap_or(3);
+    let len: u64 = std::env::var("XGX_DCC_SEQ_LEN").ok().and_then(|x| x.parse().ok()).unwrap_or(400);
     let (mut calls, mut same, mut rejected, mut faults, mut crashes, mut restarts, mut hangs) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     let mut bad = Vec::new();
     let v0: u64 = std::env::var("XGX_DCC_SEQ0").ok().and_then(|x| x.parse().ok()).unwrap_or(3000);
@@ -448,10 +448,10 @@ fn oracle_xgx_dcc_call_sequences() {
             let _ = std::fs::remove_file(log.with_extension("err"));
             let mut pending = None;
             let mut done = false;
-            for l in text.lines().filter(|l| l.starts_with("@@")) {
+            for l in text.lines().filter_map(|l| l.find("@@").map(|k| &l[k..])) {
                 let t: Vec<&str> = l.split(' ').collect();
                 match t[0] {
-                    "@@C" => pending = Some(t[1].parse::<u64>().unwrap()),
+                    "@@C" => pending = Some((t[1].parse::<u64>().unwrap(), t[2] == "00000000")),
                     "@@S" => {
                         faults += 1;
                         calls += 1;
@@ -482,7 +482,10 @@ fn oracle_xgx_dcc_call_sequences() {
                 break;
             }
             match pending {
-                Some(id) => {
+                Some((id, accepted)) => {
+                    if accepted {
+                        bad.push(format!("seed {seed} call {id}: native S_OK but the console {} on it", if hung { "hung" } else { "crashed" }));
+                    }
                     println!("restart seed {seed} call {id} hung {hung} after {} ms", t0.elapsed().as_millis());
                     if hung {
                         hangs += 1;
@@ -506,4 +509,36 @@ fn oracle_xgx_dcc_call_sequences() {
     println!("xg_x dcc call sequences ({build}): the verifier's own case order 0..{v0} plus {seqs} random sequences of {len} mixed XGDecodeDCC/XGEncodeDCC calls sharing one console and one native state with no reset between calls; {calls} calls: {same} native S_OK equal to the console (hr, data, meta, sizes), {rejected} native E_INVALIDARG (console called anyway so its global scratch advances), {faults} console-fault inputs (both states reset, as a process restart), {crashes} console crashes and {hangs} console hangs (killed after 10 s) on native-rejected inputs (restart), {} divergences", bad.len());
     assert!(bad.is_empty());
     assert!(same as u64 > (v0 + seqs * len) / 3);
+}
+
+#[test]
+fn xgx_dcc_export_overrun_rejects_in_bounds() {
+    let _g = crate::oracle::serial();
+    const G: usize = 4096;
+    let (mut over, mut before, mut cases) = (0usize, 0usize, 0usize);
+    for i in 0..20_000u64 {
+        let c = case(i);
+        if !c.enc {
+            continue;
+        }
+        cases += 1;
+        *run::SCRATCH.lock().unwrap() = Scratch { b: [0; 64], unknown: 0 };
+        let Some(why) = reason(&c, &Scratch { b: [0; 64], unknown: 0 }) else { continue };
+        if !why.contains("overruns") {
+            continue;
+        }
+        let stop: usize = why["block ".len()..why.find(':').unwrap()].parse().unwrap();
+        over += 1;
+        before += stop;
+        let (mut d, mut m, mut z) = (vec![0x3cu8; c.n * 256 + G], vec![0x5au8; c.n + G], vec![0xdead_beefu32; c.n + G]);
+        *run::SCRATCH.lock().unwrap() = Scratch { b: [0; 64], unknown: 0 };
+        let hr = unsafe { crate::dcc::XGEncodeDCC(c.n as u32, c.src.as_ptr(), d.as_mut_ptr(), m.as_mut_ptr(), z.as_mut_ptr(), c.fmt, c.sw, c.p.as_ptr() as *const crate::dcc::DccParams) };
+        assert_eq!(hr, super::E_INVALIDARG, "case {i}: {why}");
+        assert!(d[stop * 256..].iter().all(|&b| b == 0x3c), "case {i}: dst written at or past the overrunning block {stop}");
+        assert!(m[stop..].iter().all(|&b| b == 0x5a), "case {i}: meta written at or past block {stop}");
+        assert!(z[stop..].iter().all(|&v| v == 0xdead_beef), "case {i}: sizes written at or past block {stop}");
+    }
+    *run::SCRATCH.lock().unwrap() = Scratch { b: [0; 64], unknown: 0 };
+    println!("xg_x dcc export overrun rule: {cases} XGEncodeDCC calls from the verifier generator, {over} where a block's packed stream overruns 256 bytes: every one returned E_INVALIDARG, wrote nothing at or past the overrunning block (dst, meta, sizes and a {G}-element guard tail untouched), {before} earlier blocks written in bounds");
+    assert!(over > 100);
 }

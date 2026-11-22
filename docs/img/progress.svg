@@ -1845,7 +1845,7 @@
 <rect x="875.00" y="880.00" width="125.00" height="60.00" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="880.00" y="896.00" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Amplification</text>
 </g>
-<text x="4.00" y="971.00" font-family="sans-serif" font-size="16" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Xbox console libraries: 98.19% (2116/2155)</text>
+<text x="4.00" y="971.00" font-family="sans-serif" font-size="16" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Xbox console libraries: 98.42% (2121/2155)</text>
 <rect x="4" y="982" width="10" height="10" fill="#2ea043"/>
 <text x="18.00" y="991.00" font-family="sans-serif" font-size="11" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">implemented</text>
 <rect x="109" y="982" width="10" height="10" fill="#388bfd"/>
@@ -2484,11 +2484,10 @@
 <rect x="783.53" y="1514.75" width="79.20" height="79.10" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="788.53" y="1530.75" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">GDK XAcces</text>
 </g>
-<g><title>wldp.dll: 10/13 covered; not imported by an analysed title</title>
+<g><title>wldp.dll: 11/13 covered; not imported by an analysed title</title>
 <rect x="863.73" y="1515.75" width="66.64" height="19.28" fill="#2ea043"/>
 <rect x="863.73" y="1535.03" width="66.64" height="19.28" fill="#2ea043"/>
-<rect x="863.73" y="1554.30" width="33.32" height="19.28" fill="#2ea043"/>
-<rect x="897.04" y="1554.30" width="16.66" height="19.28" fill="#e3b341"/>
+<rect x="863.73" y="1554.30" width="49.98" height="19.28" fill="#2ea043"/>
 <rect x="913.70" y="1554.30" width="16.66" height="19.28" fill="#6e7681"/>
 <rect x="863.73" y="1573.58" width="16.66" height="19.28" fill="#6e7681"/>
 <line x1="863.73" y1="1535.03" x2="930.36" y2="1535.03" stroke="#0d1117" stroke-width="0.5"/>
@@ -2562,11 +2561,10 @@
 <rect x="685.55" y="1593.85" width="56.30" height="66.76" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="690.55" y="1609.85" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">xtfpix</text>
 </g>
-<g><title>hix_xs.dll: 7/8 covered; not imported by an analysed title</title>
+<g><title>hix_xs.dll: 8/8 covered; not imported by an analysed title</title>
 <rect x="686.55" y="1661.62" width="54.30" height="19.12" fill="#2ea043"/>
 <rect x="686.55" y="1680.73" width="54.30" height="19.12" fill="#388bfd"/>
-<rect x="686.55" y="1699.85" width="18.10" height="19.12" fill="#388bfd"/>
-<rect x="704.65" y="1699.85" width="18.10" height="19.12" fill="#e3b341"/>
+<rect x="686.55" y="1699.85" width="36.20" height="19.12" fill="#388bfd"/>
 <line x1="686.55" y1="1680.73" x2="740.85" y2="1680.73" stroke="#0d1117" stroke-width="0.5"/>
 <line x1="686.55" y1="1699.85" x2="740.85" y2="1699.85" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="685.55" y="1660.62" width="56.30" height="59.35" fill="none" stroke="#0d1117" stroke-width="2"/>
@@ -2781,9 +2779,8 @@
 <rect x="905.47" y="1701.67" width="31.51" height="39.76" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="910.47" y="1717.67" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Ker</text>
 </g>
-<g><title>netprofmsvc_c.dll: 1/3 covered; not imported by an analysed title</title>
-<rect x="937.98" y="1702.67" width="14.75" height="18.88" fill="#2ea043"/>
-<rect x="952.74" y="1702.67" width="14.75" height="18.88" fill="#e3b341"/>
+<g><title>netprofmsvc_c.dll: 2/3 covered; not imported by an analysed title</title>
+<rect x="937.98" y="1702.67" width="29.51" height="18.88" fill="#2ea043"/>
 <rect x="937.98" y="1721.55" width="14.75" height="18.88" fill="#6e7681"/>
 <line x1="937.98" y1="1721.55" x2="967.49" y2="1721.55" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="936.98" y="1701.67" width="31.51" height="39.76" fill="none" stroke="#0d1117" stroke-width="2"/>
@@ -2864,8 +2861,8 @@
 <rect x="863.96" y="1835.07" width="26.54" height="31.47" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="868.96" y="1851.07" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">MF</text>
 </g>
-<g><title>xtfconsolecontrol.dll: 0/2 covered; not imported by an analysed title</title>
-<rect x="864.96" y="1867.53" width="12.27" height="29.47" fill="#e3b341"/>
+<g><title>xtfconsolecontrol.dll: 1/2 covered; not imported by an analysed title</title>
+<rect x="864.96" y="1867.53" width="12.27" height="29.47" fill="#2ea043"/>
 <rect x="877.23" y="1867.53" width="12.27" height="29.47" fill="#6e7681"/>
 <rect x="863.96" y="1866.53" width="26.54" height="31.47" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="868.96" y="1882.53" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">xt</text>
@@ -2886,8 +2883,8 @@
 <rect x="945.25" y="1772.13" width="27.37" height="30.51" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="950.25" y="1788.13" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">xtf</text>
 </g>
-<g><title>xtffileio.dll: 0/2 covered; not imported by an analysed title</title>
-<rect x="973.63" y="1773.13" width="12.69" height="28.51" fill="#e3b341"/>
+<g><title>xtffileio.dll: 1/2 covered; not imported by an analysed title</title>
+<rect x="973.63" y="1773.13" width="12.69" height="28.51" fill="#2ea043"/>
 <rect x="986.31" y="1773.13" width="12.69" height="28.51" fill="#6e7681"/>
 <rect x="972.63" y="1772.13" width="27.37" height="30.51" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="977.63" y="1788.13" font-family="sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">xtf</text>

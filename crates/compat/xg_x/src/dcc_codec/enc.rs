@@ -628,6 +628,16 @@ pub(crate) fn pack(d: &mut Dcc) -> R<()> {
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) fn run_checked(d: &mut Dcc) -> R<()> {
+    run(d)?;
+    if d.spill.is_empty() {
+        Ok(())
+    } else {
+        Err(Stop::Undef(super::run::OVERRUN))
+    }
+}
+
 pub(crate) fn run(d: &mut Dcc) -> R<()> {
     d.spill.clear();
     d.o[0x418..0x420].fill(0);

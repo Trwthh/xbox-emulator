@@ -76,6 +76,36 @@ unsafe fn client() -> Result<*mut c_void, i32> {
     Ok(c)
 }
 
+pub fn device_id() -> Result<String, i32> {
+    unsafe {
+        CoInitializeEx(core::ptr::null_mut(), 0);
+        let mut en = core::ptr::null_mut();
+        let hr = CoCreateInstance(&CLSID_MM_DEVICE_ENUMERATOR, core::ptr::null_mut(), CLSCTX_ALL, &IID_IMM_DEVICE_ENUMERATOR, &mut en);
+        if hr < 0 {
+            return Err(hr);
+        }
+        let mut dev = core::ptr::null_mut();
+        let hr = slot::<unsafe extern "system" fn(*mut c_void, u32, u32, *mut *mut c_void) -> i32>(en, 4)(en, 0, 0, &mut dev);
+        release(en);
+        if hr < 0 {
+            return Err(hr);
+        }
+        let mut id: *mut u16 = core::ptr::null_mut();
+        let hr = slot::<unsafe extern "system" fn(*mut c_void, *mut *mut u16) -> i32>(dev, 5)(dev, &mut id);
+        release(dev);
+        if hr < 0 || id.is_null() {
+            return Err(hr);
+        }
+        let mut n = 0;
+        while *id.add(n) != 0 {
+            n += 1;
+        }
+        let s = String::from_utf16_lossy(core::slice::from_raw_parts(id, n));
+        CoTaskMemFree(id as *mut c_void);
+        Ok(s)
+    }
+}
+
 pub struct DeviceInfo {
     pub mix: Vec<u8>,
     pub default_period: i64,

@@ -854,3 +854,315 @@ fn oracle_dcc_cases_thread() {
     println!("thread moved {}: {}", moved.len(), moved.join(" "));
     println!("thread fixed {}: {}", fixed.len(), fixed.join(" "));
 }
+
+pub(super) struct RspProbe {
+    page: *mut u8,
+    site: usize,
+    old: [u8; 4],
+}
+
+impl RspProbe {
+    pub(super) unsafe fn new(h: usize, site: usize) -> RspProbe {
+        let s = (h + site) as *mut u8;
+        assert_eq!(*s, 0xe8);
+        let target = (s as isize + 5 + core::ptr::read_unaligned(s.add(1) as *const i32) as isize) as u64;
+        let mut page: *mut u8 = core::ptr::null_mut();
+        let mut a = (h + 0x0180_0000) & !0xffff;
+        while page.is_null() {
+            page = VirtualAlloc(a as *mut _, 0x1000, 0x3000, 0x40) as *mut u8;
+            a += 0x10000;
+        }
+        let mut c: Vec<u8> = vec![0x49, 0xbb];
+        c.extend_from_slice(&(page.add(0x800) as u64).to_le_bytes());
+        c.extend_from_slice(&[0x49, 0x89, 0x23]);
+        c.extend_from_slice(&[0x49, 0xbb]);
+        c.extend_from_slice(&target.to_le_bytes());
+        c.extend_from_slice(&[0x41, 0xff, 0xe3]);
+        core::ptr::copy_nonoverlapping(c.as_ptr(), page, c.len());
+        let mut o = 0u32;
+        assert!(VirtualProtect(s as *mut _, 5, 0x40, &mut o) != 0);
+        let mut old = [0u8; 4];
+        core::ptr::copy_nonoverlapping(s.add(1), old.as_mut_ptr(), 4);
+        let rel = (page as isize - (s as isize + 5)) as i32;
+        core::ptr::copy_nonoverlapping(rel.to_le_bytes().as_ptr(), s.add(1), 4);
+        FlushInstructionCache(-1, s as *const _, 5);
+        RspProbe { page, site: h + site, old }
+    }
+    pub(super) unsafe fn rsp(&self) -> usize {
+        core::ptr::read_volatile(self.page.add(0x800) as *const usize)
+    }
+}
+
+impl Drop for RspProbe {
+    fn drop(&mut self) {
+        unsafe {
+            let s = self.site as *mut u8;
+            core::ptr::copy_nonoverlapping(self.old.as_ptr(), s.add(1), 4);
+            FlushInstructionCache(-1, s as *const _, 5);
+        }
+    }
+}
+
+fn find_ptrs(b: &[u8], lo: usize, hi: usize) -> Vec<(usize, usize)> {
+    (0..b.len() / 8).filter_map(|i| {
+        let v = u64::from_le_bytes(b[i * 8..i * 8 + 8].try_into().unwrap()) as usize;
+        (v >= lo && v < hi).then_some((i * 8, v))
+    }).collect()
+}
+
+#[test]
+fn oracle_dcc_cases_rsp() {
+    let Ok(ids) = std::env::var("TOMBOX_DCC_RSP") else { return };
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let pe = unsafe { RspProbe::new(o.h, 0xa97a) };
+    let pd = unsafe { RspProbe::new(o.h, 0xacfe) };
+    let rs: Vec<Snap> = [0x262e8usize, 0x26366, 0x263d0].iter().map(|&s| unsafe { Snap::new(o.h, s, o.h + 0x4ac90) }).collect();
+    let cv = unsafe { Snap::new(o.h, 0x28c58, o.h + 0x4adc0) };
+    let dsites = [(0x232beusize, 0x4adc0usize), (0x2334e, 0x4ac90), (0x233cd, 0x4ac90), (0x2351d, 0x4ac90)];
+    let ds: Vec<Snap> = dsites.iter().map(|&(s, t)| unsafe { Snap::new(o.h, s, o.h + t) }).collect();
+    for id in ids.split(',').map(|x| x.parse::<u64>().unwrap()) {
+        let c = case(id);
+        for th in [false, true] {
+            unsafe {
+                for r in rs.iter().chain(ds.iter()).chain(std::iter::once(&cv)) {
+                    r.reset();
+                }
+            }
+            let h = o.h;
+            let cc = case(id);
+            let (r, out, _) = if th { std::thread::spawn(move || console_case(h, &cc)).join().unwrap() } else { console_case(h, &cc) };
+            let e = unsafe { if c.enc { pe.rsp() + 0x48 } else { pd.rsp() + 0x30 } };
+            println!("rsp {} enc {} thread {} hr {:#x} E {:#x}", id, c.enc, th, r as u32, e);
+            let lo = e - 0x10000;
+            let hi = e + 0x1000;
+            let snaps: Vec<&Snap> = if c.enc { rs.iter().chain(std::iter::once(&cv)).collect() } else { ds.iter().collect() };
+            for (i, s) in snaps.iter().enumerate() {
+                let n = unsafe { s.count() } as usize;
+                for k in 0..n.min(3) {
+                    let b = unsafe { &s.slot(k)[SNAP - 0x88..SNAP - 0x48] };
+                    let p: Vec<String> = find_ptrs(b, lo, hi).iter().map(|&(o2, v)| format!("@{}=E-{:#x}", o2, e - v)).collect();
+                    println!("  site{} call{} stackptrs {:?}", i, k, p);
+                }
+            }
+            for j in 0..out.len() / 8 {
+                let v = u64::from_le_bytes(out[j * 8..j * 8 + 8].try_into().unwrap()) as usize;
+                if v >= lo && v < hi {
+                    println!("  out@{} = E-{:#x}", j * 8, e - v);
+                }
+            }
+        }
+    }
+}
+
+fn native_case(c: &Case, e: Option<usize>) -> (i32, Vec<u8>, Vec<u8>) {
+    crate::dcc::ENTRY.with(|x| x.set(e));
+    let mut out = vec![0x3cu8; 256 * c.n];
+    let mut meta = vec![0x3cu8; c.n];
+    let r = if c.enc {
+        crate::dcc::encode(c.n as u32, &c.src, &mut out, &mut meta, None, c.fmt, c.sw, c.dim, c.p[0], c.p[1])
+    } else {
+        meta.copy_from_slice(&c.meta);
+        crate::dcc::decode(c.n as u32, &c.src, &c.meta, &mut out, c.fmt, c.sw, c.dim, c.p[0], c.p[1])
+    };
+    crate::dcc::ENTRY.with(|x| x.set(None));
+    (r, out, meta)
+}
+
+#[test]
+fn oracle_dcc_cases_model() {
+    let Ok(path) = std::env::var("TOMBOX_DCC_MODEL") else { return };
+    let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let pe = unsafe { RspProbe::new(o.h, 0xa97a) };
+    let pd = unsafe { RspProbe::new(o.h, 0xacfe) };
+    let h = o.h;
+    let vary: u32 = std::env::var("TOMBOX_DCC_VARY").ok().map(|s| s.parse().unwrap()).unwrap_or(!0);
+    let mut stat: std::collections::BTreeMap<&'static str, Vec<String>> = std::collections::BTreeMap::new();
+    for &id in &ids {
+        let c = case(id);
+        for th in [false, true] {
+            let cc = case(id);
+            let peu = &pe as *const RspProbe as usize;
+            let pdu = &pd as *const RspProbe as usize;
+            let job = move || {
+                let con = console_case(h, &cc);
+                let e = unsafe { if cc.enc { (*(peu as *const RspProbe)).rsp() + 0x48 } else { (*(pdu as *const RspProbe)).rsp() + 0x30 } };
+                crate::dcc::VARY.with(|v| v.set(vary));
+                let nat = native_case(&cc, Some(e));
+                (con, nat)
+            };
+            let (con, nat) = if th { std::thread::spawn(job).join().unwrap() } else { job() };
+            let k = if nat == con {
+                "match"
+            } else if nat.0 != 0 && con.0 == 0 {
+                "native-reject"
+            } else {
+                "MISMATCH"
+            };
+            stat.entry(k).or_default().push(format!("{}{}{}", if c.enc { "E" } else { "D" }, id, if th { "t" } else { "" }));
+        }
+    }
+    for (k, v) in &stat {
+        println!("model {} {}: {}", k, v.len(), v.join(" "));
+    }
+}
+
+#[test]
+fn oracle_dcc_cases_writer() {
+    let Ok(ids) = std::env::var("TOMBOX_DCC_WRITER") else { return };
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let drv = unsafe { Snap::new(o.h, 0xab3f, o.h + 0x26220) };
+    for site in [0xaa39usize, 0xaa54] {
+        let tgt = unsafe {
+            let s = (o.h + site) as *const u8;
+            (s as isize + 5 + core::ptr::read_unaligned(s.add(1) as *const i32) as isize) as usize
+        };
+        let f = unsafe { Snap::new(o.h, site, tgt) };
+        for id in ids.split(',').map(|x| x.parse::<u64>().unwrap()) {
+            for fv in [None, Some(0x5au8)] {
+                unsafe {
+                    f.fill(fv);
+                    f.reset();
+                    drv.reset();
+                }
+                let _ = console_case(o.h, &case(id));
+                println!("writer site {:#x} id {} fill {:?} relaytmp {}", site, id, fv, hx(unsafe { &drv.slot(0)[SNAP - 0x208..SNAP - 0x1c8] }));
+            }
+        }
+        unsafe { f.fill(None) };
+    }
+}
+
+pub(super) struct Up {
+    page: *mut u8,
+    site: usize,
+    old: [u8; 4],
+}
+
+pub(super) const UP: usize = 0x1600;
+
+impl Up {
+    pub(super) unsafe fn new(h: usize, site: usize) -> Up {
+        let s = (h + site) as *mut u8;
+        assert_eq!(*s, 0xe8);
+        let target = (s as isize + 5 + core::ptr::read_unaligned(s.add(1) as *const i32) as isize) as u64;
+        let mut page: *mut u8 = core::ptr::null_mut();
+        let mut a = (h + 0x0200_0000) & !0xffff;
+        while page.is_null() {
+            page = VirtualAlloc(a as *mut _, 0x4000, 0x3000, 0x40) as *mut u8;
+            a += 0x10000;
+        }
+        let mut c: Vec<u8> = vec![0x56, 0x57, 0x51, 0x48, 0x8d, 0x74, 0x24, 0x20, 0x48, 0xbf];
+        c.extend_from_slice(&(page.add(0x1000) as u64).to_le_bytes());
+        c.extend_from_slice(&[0x48, 0x89, 0x77, 0xf8, 0xb9]);
+        c.extend_from_slice(&(UP as u32).to_le_bytes());
+        c.extend_from_slice(&[0xf3, 0xa4, 0x59, 0x5f, 0x5e, 0x48, 0xb8]);
+        c.extend_from_slice(&target.to_le_bytes());
+        c.extend_from_slice(&[0xff, 0xe0]);
+        core::ptr::copy_nonoverlapping(c.as_ptr(), page, c.len());
+        let mut o = 0u32;
+        assert!(VirtualProtect(s as *mut _, 5, 0x40, &mut o) != 0);
+        let mut old = [0u8; 4];
+        core::ptr::copy_nonoverlapping(s.add(1), old.as_mut_ptr(), 4);
+        let rel = (page as isize - (s as isize + 5)) as i32;
+        core::ptr::copy_nonoverlapping(rel.to_le_bytes().as_ptr(), s.add(1), 4);
+        FlushInstructionCache(-1, s as *const _, 5);
+        Up { page, site: h + site, old }
+    }
+    pub(super) unsafe fn rsp(&self) -> usize {
+        core::ptr::read_volatile(self.page.add(0x1000 - 8) as *const usize)
+    }
+    pub(super) unsafe fn mem(&self) -> &[u8] {
+        core::slice::from_raw_parts(self.page.add(0x1000), UP)
+    }
+}
+
+impl Drop for Up {
+    fn drop(&mut self) {
+        unsafe {
+            let s = self.site as *mut u8;
+            core::ptr::copy_nonoverlapping(self.old.as_ptr(), s.add(1), 4);
+            FlushInstructionCache(-1, s as *const _, 5);
+        }
+    }
+}
+
+#[test]
+fn oracle_dcc_cases_decobj() {
+    let Ok(ids) = std::env::var("TOMBOX_DCC_DECOBJ") else { return };
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let up = unsafe { Up::new(o.h, 0xaece) };
+    let pd = unsafe { RspProbe::new(o.h, 0xacfe) };
+    for id in ids.split(',').map(|x| x.parse::<u64>().unwrap()) {
+        let c = case(id);
+        let _ = console_case(o.h, &c);
+        let e = unsafe { pd.rsp() } + 0x30;
+        let r = unsafe { up.rsp() };
+        let m = unsafe { up.mem() };
+        let obj = &m[0x40..0x40 + crate::dcc::OBJ];
+        let q = |o2: usize| u64::from_le_bytes(obj[o2..o2 + 8].try_into().unwrap()) as usize;
+        println!("decobj {} E {:#x} rsp E-{:#x} obj E-{:#x} buf0 {:#x} buf1 {:#x} buf2 {:#x}", id, e, e - r, e - (r + 0x40), q(0x90), q(0xd0), q(0x118));
+        for k in 0..3 {
+            let a = q(crate::dcc::SURF[k] + 0x20);
+            if a >= r && a + 256 <= r + UP {
+                println!("  buf{} at E-{:#x} obj+{:#x}: {}", k, e - a, a - (r + 0x40), hx(&m[a - r..a - r + 256]));
+            } else {
+                println!("  buf{} at {:#x} outside", k, a);
+            }
+        }
+    }
+}
+
+#[test]
+fn oracle_dcc_cases_decres() {
+    let Ok(path) = std::env::var("TOMBOX_DCC_DECRES") else { return };
+    let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let pd = unsafe { RspProbe::new(o.h, 0xacfe) };
+    let sites = [(0x232beusize, 0x4adc0usize), (0x2334e, 0x4ac90), (0x233cd, 0x4ac90), (0x2351d, 0x4ac90)];
+    let ss: Vec<Snap> = sites.iter().map(|&(s, t)| unsafe { Snap::new(o.h, s, o.h + t) }).collect();
+    let mut agg: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for &id in &ids {
+        let c = case(id);
+        if c.enc {
+            continue;
+        }
+        for th in [false, true] {
+            unsafe {
+                for s in &ss {
+                    s.reset();
+                }
+            }
+            let h = o.h;
+            let cc = case(id);
+            let _ = if th { std::thread::spawn(move || console_case(h, &cc)).join().unwrap() } else { console_case(h, &cc) };
+            let e = unsafe { pd.rsp() } + 0x30;
+            for (i, s) in ss.iter().enumerate() {
+                let n = unsafe { s.count() } as usize;
+                for k in 0..n.min(SLOTS) {
+                    let b = unsafe { &s.slot(k)[SNAP - 0x88..SNAP - 0x48] };
+                    let mut t = String::new();
+                    for q in 0..8 {
+                        let v = u64::from_le_bytes(b[q * 8..q * 8 + 8].try_into().unwrap()) as usize;
+                        if v > e - 0x10000 && v < e + 0x1000 {
+                            t.push_str(&format!("[E-{:#x}] ", e - v));
+                        } else {
+                            t.push_str(&format!("{} ", hx(&b[q * 8..q * 8 + 8]).replace(' ', "")));
+                        }
+                    }
+                    *agg.entry(format!("site{} blk{} {}", i, k.min(1), t)).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    let mut v: Vec<_> = agg.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    for (k, n) in v.iter().take(60) {
+        println!("decres {:4} {}", n, k);
+    }
+}

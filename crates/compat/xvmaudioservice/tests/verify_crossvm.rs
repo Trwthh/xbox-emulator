@@ -5,6 +5,13 @@ use XVMAudioService::*;
 const IID_ICLASSFACTORY: Guid = Guid { data1: 1, data2: 0, data3: 0, data4: [0xC0, 0, 0, 0, 0, 0, 0, 0x46] };
 const IID_IUNKNOWN: Guid = Guid { data1: 0, data2: 0, data3: 0, data4: [0xC0, 0, 0, 0, 0, 0, 0, 0x46] };
 const STEP: &str = "TOMBOX_VERIFY_CROSSVM_STEP";
+const CLSID_XVM_EVENT: Guid = Guid { data1: 0x148EC3BF, data2: 0x349C, data3: 0x4EAC, data4: [0xB3, 0x73, 0x9F, 0xD5, 0x7C, 0xB4, 0x6D, 0x88] };
+const IID_XVM_EVENT_OPENER: Guid = Guid { data1: 0xC4E70434, data2: 0x407D, data3: 0x416B, data4: [0x94, 0xBE, 0x97, 0x17, 0xB7, 0x90, 0x65, 0xFB] };
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn WaitForSingleObject(h: isize, ms: u32) -> u32;
+}
 
 unsafe fn vslot<T: Copy>(obj: *mut c_void, slot: usize) -> T {
     let vt = *(obj as *const *const usize);
@@ -114,6 +121,25 @@ fn inner() {
     println!("guest XvmBuffer va {va:?} size {size:#x}, host block {base:#x}, {frames} frames, event {event_name}");
     assert_eq!(va as usize, base, "the guest maps the same pool run the host renders from");
 
+    let mut ef = core::ptr::null_mut();
+    assert_eq!(unsafe { theirs(&CLSID_XVM_EVENT, &IID_ICLASSFACTORY, &mut ef) }, S_OK);
+    let mut eo = core::ptr::null_mut();
+    assert_eq!(unsafe { vslot::<unsafe extern "system" fn(*mut c_void, *mut c_void, *const Guid, *mut *mut c_void) -> i32>(ef, 3)(ef, core::ptr::null_mut(), &IID_XVM_EVENT_OPENER, &mut eo) }, S_OK, "console event class 148ec3bf");
+    let mut edesc = [0u8; 0x30];
+    edesc[0..4].copy_from_slice(&r[crossvm::INIT_EVENT1..crossvm::INIT_EVENT1 + 4]);
+    edesc[8..0x2e].copy_from_slice(&r[crossvm::INIT_EVENT1 + 4..crossvm::INIT_EVENT1 + 0x2a]);
+    let mut guest_event: isize = 0;
+    let ehr = unsafe { vslot::<unsafe extern "system" fn(*mut c_void, *const u8, *mut isize) -> i32>(eo, 5)(eo, edesc.as_ptr(), &mut guest_event) };
+    let opened = console_sandbox::vab::opened_names();
+    println!("console GetHandle {:#010x} handle {guest_event:#x}, OpenEventW names {opened:?}", ehr as u32);
+    assert_eq!(ehr, S_OK, "the console opens the host stream event from the Initialize descriptor");
+    assert!(opened.contains(&format!("{event_name}{}", console_sandbox::vab::SUFFIX)), "the console derives the same name the host created");
+    assert_ne!(guest_event, 0);
+    let ev_obj = guest_event as *mut c_void;
+    let guest_handle = unsafe { vslot::<unsafe extern "system" fn(*mut c_void) -> isize>(ev_obj, 3)(ev_obj) };
+    println!("guest event object {ev_obj:?} -> handle {guest_handle:#x}");
+    assert_ne!(guest_handle, 0);
+
     let cb = va as *mut u8;
     let rd = |o: usize| unsafe { (cb.add(o) as *const u32).read_unaligned() };
     assert_eq!(rd(crossvm::CB_MAGIC_AT), crossvm::CB_MAGIC);
@@ -146,12 +172,16 @@ fn inner() {
     }
     let mut e = envelope(crossvm::STOP, object);
     assert_eq!(send(&mut e), 0);
+    assert_eq!(unsafe { WaitForSingleObject(guest_handle, 1000) }, 0, "the host signals the guest stream event after draining");
     let read = unsafe { (cb.add(crossvm::CB_READ) as *const i64).read_volatile() };
     let cap = crossvm::take_capture(object).expect("capture enabled");
     println!("host READ {read} of {bytes} written, captured {} bytes from the WASAPI render buffer", cap.len());
     assert_eq!(read, bytes as i64, "the host consumed exactly what the guest released");
     assert_eq!(&cap[..bytes], &pattern[..], "the bytes in the WASAPI render buffer are the guest's samples");
 
+    unsafe { release(ev_obj) };
+    unsafe { release(eo) };
+    unsafe { release(ef) };
     unsafe { release(o) };
     unsafe { release(f) };
     let mut e = envelope(crossvm::RELEASE_OBJECT, object);

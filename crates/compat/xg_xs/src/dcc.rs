@@ -155,9 +155,16 @@ pub unsafe fn decode_export(count: u32, src: *const u8, meta: *const u8, dst: *m
     S_OK
 }
 
-fn enc_try(pre: &Dcc, relay: u8, conv: u8) -> Result<(Dcc, u32), i32> {
+thread_local! {
+    pub(crate) static ENTRY: core::cell::Cell<Option<usize>> = const { core::cell::Cell::new(None) };
+    pub(crate) static VARY: core::cell::Cell<u32> = const { core::cell::Cell::new(!0) };
+}
+
+pub(crate) const CONV_FROM_ENTRY: usize = 0x1968;
+
+fn enc_try(pre: &Dcc, fills: &[[u8; 64]; 3], conv: &[u8; 64]) -> Result<(Dcc, u32), i32> {
     let mut t = Dcc { m: pre.m.clone(), b: pre.b };
-    enc::run_with(&mut t, Some([relay; 64]), Some([conv; 64]))?;
+    enc::run_model(&mut t, fills, conv)?;
     let sz = block_size(&t)?;
     Ok((t, sz))
 }
@@ -166,15 +173,39 @@ fn same(a: &(Dcc, u32), b: &(Dcc, u32)) -> bool {
     a.0.b[1] == b.0.b[1] && a.0.r8(0x58) == b.0.r8(0x58) && a.1 == b.1
 }
 
+fn unknowns(k: u64) -> [u8; 64] {
+    let mut b = [0u8; 64];
+    let mut x = 0x9e37_79b9_7f4a_7c15u64 ^ k.wrapping_mul(0xd1b5_4a32_d192_ed03);
+    for v in b.iter_mut() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *v = x as u8;
+    }
+    match k {
+        0 => [0x00; 64],
+        1 => [0xff; 64],
+        _ => b,
+    }
+}
+
 fn enc_block(d: &mut Dcc) -> Result<u32, i32> {
     let pre = Dcc { m: d.m.clone(), b: d.b };
-    if enc::run_with(d, None, None).is_ok() {
-        return block_size(d);
-    }
-    let fills = [0x00u8, 0xff, 0x5a];
+    let p = ENTRY.with(|c| c.get()).map(|e| e.wrapping_sub(CONV_FROM_ENTRY));
+    let (cb, ck) = enc::conv_residue(p);
     let mut runs = Vec::new();
-    for v in fills {
-        runs.push(enc_try(&pre, v, v)?);
+    let vary = VARY.with(|v| v.get());
+    for k in 0..5u64 {
+        let q = |b: u32, x: u64| if vary >> b & 1 != 0 { x } else { 7 };
+        let fills = [unknowns(q(0, 3 * k)), unknowns(q(1, 3 * k + 1)), unknowns(q(2, 3 * k + 2))];
+        let r = unknowns(q(3, 100 + k));
+        let mut conv = cb;
+        for i in 0..64 {
+            if !ck[i] {
+                conv[i] = r[i];
+            }
+        }
+        runs.push(enc_try(&pre, &fills, &conv)?);
     }
     if runs[1..].iter().all(|r| same(r, &runs[0])) {
         let (t, s) = runs.swap_remove(0);

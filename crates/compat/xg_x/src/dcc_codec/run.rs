@@ -153,7 +153,7 @@ pub(crate) fn block_size(d: &Dcc) -> Result<u32, Stop> {
     Ok(acc.count_ones() << 5)
 }
 
-const OVERRUN: &str = "the packed stream overruns the console's 256-byte heap output surface; whether the console then crashes depends on what the heap holds next to it";
+pub(crate) const OVERRUN: &str = "the packed stream overruns the console's 256-byte heap output surface; whether the console then crashes depends on what the heap holds next to it";
 
 pub(crate) fn encode_all(runs: &mut [Dcc], src: &[u8], dst: &mut [u8], meta: &mut [u8], mut sizes: Option<&mut [u32]>) -> Blocks {
     let mut stop = None;

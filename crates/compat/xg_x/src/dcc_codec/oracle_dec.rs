@@ -123,8 +123,13 @@ pub(super) fn stage(c: &Con, d: &mut Dcc, rva: usize, f: fn(&mut Dcc) -> R<()>, 
     clear_err(d, c);
     c.load(d);
     let mut n = d.clone();
+    n.spill.clear();
     if let Err(e) = f(&mut n) {
         t.stop(e);
+        return false;
+    }
+    if !n.spill.is_empty() {
+        t.stop(super::Stop::Undef(super::run::OVERRUN));
         return false;
     }
     let g: St = unsafe { core::mem::transmute(c.f(rva)) };
@@ -180,7 +185,7 @@ pub(super) fn native_encoded(f: i32, t: i32, p: [u32; 2], src: &[u8; 256]) -> Op
         return None;
     }
     d.s[0] = *src;
-    enc::run(&mut d).ok()?;
+    enc::run_checked(&mut d).ok()?;
     Some((d.s[1], d.o[0x34]))
 }
 
