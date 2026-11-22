@@ -110,10 +110,12 @@ fn pack(v: &str, bits: u32, num: Num) -> Result<String, String> {
     let mx = mask(bits);
     Ok(match num {
         Num::Unorm => format!("((uint)round(saturate(asfloat({v})) * {mx}.0))"),
-        Num::Snorm => format!(
-            "(((({v}) & 0x7fffffffu) > 0x7f800000u) ? 0u : (asuint((int)round(clamp(asfloat({v}), -1.0, 1.0) * {}.0)) & {mx:#x}u))",
-            mask(bits - 1)
-        ),
+        Num::Snorm => {
+            let a = format!("(abs(clamp(asfloat({v}), -1.0, 1.0)) * {}.0)", mask(bits - 1));
+            format!(
+                "(((({v}) & 0x7fffffffu) > 0x7f800000u) ? 0u : (asuint((int)(floor({a}) + ((({a}) - floor({a})) >= 0.5 ? 1.0 : 0.0)) * ((({v}) >> 31) != 0u ? -1 : 1)) & {mx:#x}u))"
+            )
+        }
         Num::Uint if bits == 32 => v.to_string(),
         Num::Uint => format!("min({v}, {mx:#x}u)"),
         Num::Sint if bits == 32 => v.to_string(),
@@ -270,12 +272,7 @@ impl<'a> Emitter<'a> {
             return Ok(());
         }
         let w = n.min(nc);
-        let (lo_off, lo_bits) = fmt.fields[w as usize - 1];
-        let end_bits = lo_off + lo_bits;
-        if w < nc && (end_bits % 8 != 0 || fmt.fields[..w as usize].iter().any(|&(o, b)| o % 8 != 0 || b % 8 != 0)) {
-            return Err(format!("{} on a format with sub-byte packed components writes part of a byte", ins.mnemonic));
-        }
-        let len = if w < nc { end_bits / 8 } else { fmt.bytes };
+        let len = fmt.bytes;
         let mut words = vec![String::new(); ndw as usize];
         for k in 0..w {
             let (off, bits) = fmt.fields[k as usize];
