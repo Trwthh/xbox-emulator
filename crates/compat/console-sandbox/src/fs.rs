@@ -78,6 +78,9 @@ pub unsafe extern "system" fn create_file_w(name: *const u16, access: u32, share
     if !name.is_null() && crate::logan::is_device_path(&from_ptr(name)) {
         return crate::logan::open();
     }
+    if !name.is_null() && crate::vab::is_device_path(&from_ptr(name)) {
+        return crate::vab::open();
+    }
     match host_wide(name) {
         Some((_, h)) => CreateFileW(h.as_ptr(), access, share, sa, disposition, flags, template),
         None => {

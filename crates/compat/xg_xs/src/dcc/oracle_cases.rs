@@ -750,3 +750,107 @@ fn oracle_dcc_cases_possens() {
         println!("possens site{} pos{} {} ids {:?}", site, p, v.len(), &v[..v.len().min(8)]);
     }
 }
+
+#[test]
+fn oracle_dcc_cases_addr() {
+    let Ok(ids) = std::env::var("TOMBOX_DCC_ADDR") else { return };
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let enc: super::oracle_dec::Enc = unsafe { core::mem::transmute(o.f("XGEncodeDCC")) };
+    let sites = [0x262e8usize, 0x26366, 0x263d0];
+    let rs: Vec<Snap> = sites.iter().map(|&s| unsafe { Snap::new(o.h, s, o.h + 0x4ac90) }).collect();
+    let cv = unsafe { Snap::new(o.h, 0x28c58, o.h + 0x4adc0) };
+    let pre = unsafe { Snap::new(o.h, 0xab3f, o.h + 0x26220) };
+    for id in ids.split(',').map(|x| x.parse::<u64>().unwrap()) {
+        let c = case(id);
+        for shift in [0usize, 0x40] {
+            unsafe {
+                for r in &rs {
+                    r.reset();
+                }
+                cv.reset();
+                pre.reset();
+            }
+            let mut sbuf = vec![0u8; c.src.len() + 0x100];
+            sbuf[shift..shift + c.src.len()].copy_from_slice(&c.src);
+            let mut out = vec![0x3cu8; 256 * c.n + 0x100];
+            let mut meta = vec![0x3cu8; c.n + 0x100];
+            let mut sz = vec![0u32; c.n + 0x40];
+            let marker = 0u64;
+            unsafe { enc(c.n as u32, sbuf.as_ptr().add(shift), out.as_mut_ptr().add(shift), meta.as_mut_ptr().add(shift), sz.as_mut_ptr().add(shift / 4), c.fmt, c.sw, c.dim, c.p.as_ptr()) };
+            println!("addr {} shift {:#x} h {:#x} src {:#x} out {:#x} meta {:#x} sz {:#x} p {:#x} stack {:#x}", id, shift, o.h, sbuf.as_ptr() as usize + shift, out.as_ptr() as usize + shift, meta.as_ptr() as usize + shift, sz.as_ptr() as usize + shift, c.p.as_ptr() as usize, &marker as *const u64 as usize);
+            let s0 = unsafe { pre.slot(0) };
+            println!("  pre-driver rsp-0x40.. {}", hx(&s0[SNAP - 0x40..SNAP]));
+            for (i, r) in rs.iter().enumerate() {
+                println!("  relay{} {}", i + 1, hx(unsafe { &r.slot(0)[SNAP - 0x88..SNAP - 0x48] }));
+            }
+            println!("  conv0 {}", hx(unsafe { &cv.slot(0)[SNAP - 0x88..SNAP - 0x48] }));
+        }
+    }
+}
+
+pub(super) fn console_case(h: usize, c: &Case) -> (i32, Vec<u8>, Vec<u8>) {
+    let f = |n: &str| unsafe {
+        let s = format!("{n}\0");
+        GetProcAddress(h as *mut _, s.as_ptr())
+    };
+    let mut out = vec![0x3cu8; 256 * c.n];
+    let mut meta = vec![0x3cu8; c.n];
+    let mut sz = vec![0u32; c.n];
+    let r = if c.enc {
+        let enc: super::oracle_dec::Enc = unsafe { core::mem::transmute(f("XGEncodeDCC")) };
+        unsafe { enc(c.n as u32, c.src.as_ptr(), out.as_mut_ptr(), meta.as_mut_ptr(), sz.as_mut_ptr(), c.fmt, c.sw, c.dim, c.p.as_ptr()) }
+    } else {
+        let dec: super::oracle_dec::DecF = unsafe { core::mem::transmute(f("XGDecodeDCC")) };
+        meta.copy_from_slice(&c.meta);
+        unsafe { dec(c.n as u32, c.src.as_ptr(), c.meta.as_ptr(), out.as_mut_ptr(), c.fmt, c.sw, c.dim, c.p.as_ptr()) }
+    };
+    (r, out, meta)
+}
+
+extern "system" {
+    fn GetProcAddress(h: *mut core::ffi::c_void, n: *const u8) -> *mut core::ffi::c_void;
+}
+
+#[inline(never)]
+fn console_deep(h: usize, c: &Case, depth: usize) -> (i32, Vec<u8>, Vec<u8>) {
+    if depth == 0 {
+        return console_case(h, c);
+    }
+    let pad = [0u8; 0x1000];
+    let r = console_deep(h, c, depth - 1);
+    unsafe { core::ptr::read_volatile(&pad[depth & 0xfff]) };
+    r
+}
+
+pub(super) fn thread_variants(h: usize, id: u64) -> Vec<(i32, Vec<u8>, Vec<u8>)> {
+    let mut v = Vec::new();
+    v.push(console_case(h, &case(id)));
+    for (depth, ss) in [(0usize, 1usize << 20), (0, 8 << 20), (3, 1 << 20), (16, 1 << 20)] {
+        let r = std::thread::Builder::new().stack_size(ss).spawn(move || console_deep(h, &case(id), depth)).unwrap().join().unwrap();
+        v.push(r);
+    }
+    v.push(console_deep(h, &case(id), 5));
+    v
+}
+
+#[test]
+fn oracle_dcc_cases_thread() {
+    let Ok(path) = std::env::var("TOMBOX_DCC_THREAD") else { return };
+    let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let mut moved = Vec::new();
+    let mut fixed = Vec::new();
+    for &id in &ids {
+        let v = thread_variants(o.h, id);
+        let k = (1..v.len()).find(|&k| v[k] != v[0]);
+        let tag = if case(id).enc { "E" } else { "D" };
+        match k {
+            Some(k) => moved.push(format!("{}{}@{}", tag, id, k)),
+            None => fixed.push(format!("{}{}", tag, id)),
+        }
+    }
+    println!("thread moved {}: {}", moved.len(), moved.join(" "));
+    println!("thread fixed {}: {}", fixed.len(), fixed.join(" "));
+}

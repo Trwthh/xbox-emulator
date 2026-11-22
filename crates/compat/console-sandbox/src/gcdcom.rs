@@ -272,14 +272,7 @@ unsafe extern "system" fn audio_call(_this: *mut c_void, cb: i32, buf: *mut u8) 
     if buf.is_null() {
         return E_POINTER;
     }
-    if cb < 0x10 {
-        return E_INVALIDARG;
-    }
-    let call = (buf.add(8) as *const u32).read_unaligned();
-    let object = (buf.add(0xc) as *const u32).read_unaligned();
-    (buf.add(4) as *mut i32).write_unaligned(E_NOTIMPL);
-    compat_common::record_raw("gamecore-host", "ICrossVmAudio", &format!("call {call:#x} object {object:#x} ({cb} bytes): guest audio client protocol not served, E_NOTIMPL in the envelope"));
-    S_OK
+    crate::crossvm::call(cb, buf)
 }
 
 unsafe extern "system" fn audio_ack(_this: *mut c_void, v: i16) -> i32 {

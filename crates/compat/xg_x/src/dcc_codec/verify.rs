@@ -424,13 +424,13 @@ fn oracle_xgx_dcc_call_sequences() {
                 .env("XGX_DCC_SEQ_CHILD", format!("{seed} {j} {len}"))
                 .env("XGX_DCC_BUILD", &build)
                 .stdout(std::fs::File::create(&log).unwrap())
-                .stderr(std::process::Stdio::null())
+                .stderr(std::fs::File::create(log.with_extension("err")).unwrap())
                 .spawn()
                 .unwrap();
             let t0 = std::time::Instant::now();
             let mut hung = false;
             while child.try_wait().unwrap().is_none() {
-                if t0.elapsed().as_secs() > 30 {
+                if t0.elapsed().as_secs() > 10 {
                     let _ = child.kill();
                     let _ = child.wait();
                     hung = true;
@@ -438,8 +438,14 @@ fn oracle_xgx_dcc_call_sequences() {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
+            let st = child.try_wait().ok().flatten();
+            if std::env::var("XGX_DCC_SEQ_TRACE").is_ok() {
+                println!("child from {j}: {:?} after {} ms hung {hung}", st, t0.elapsed().as_millis());
+            }
             let text = std::fs::read_to_string(&log).unwrap_or_default();
             let _ = std::fs::remove_file(&log);
+            let err = std::fs::read_to_string(log.with_extension("err")).unwrap_or_default();
+            let _ = std::fs::remove_file(log.with_extension("err"));
             let mut pending = None;
             let mut done = false;
             for l in text.lines().filter(|l| l.starts_with("@@")) {
@@ -477,6 +483,7 @@ fn oracle_xgx_dcc_call_sequences() {
             }
             match pending {
                 Some(id) => {
+                    println!("restart seed {seed} call {id} hung {hung} after {} ms", t0.elapsed().as_millis());
                     if hung {
                         hangs += 1;
                     } else {
@@ -486,8 +493,9 @@ fn oracle_xgx_dcc_call_sequences() {
                     j = id + 1;
                 }
                 None => {
+                    println!("restart seed {seed} from {j}: no progress, hung {hung}, status {st:?}, stdout {:?}, stderr {:?}", &text[text.len().saturating_sub(300)..], &err[err.len().saturating_sub(600)..]);
                     restarts += 1;
-                    assert!(restarts < 100_000, "child made no progress (hung {hung})");
+                    assert!(false, "child made no progress from call {j} (hung {hung}, status {st:?})");
                 }
             }
         }
@@ -495,7 +503,7 @@ fn oracle_xgx_dcc_call_sequences() {
     for b in bad.iter().filter(|b| !b.is_empty()) {
         println!("sequence divergence: {b}");
     }
-    println!("xg_x dcc call sequences ({build}): the verifier's own case order 0..{v0} plus {seqs} random sequences of {len} mixed XGDecodeDCC/XGEncodeDCC calls sharing one console and one native state with no reset between calls; {calls} calls: {same} native S_OK equal to the console (hr, data, meta, sizes), {rejected} native E_INVALIDARG (console called anyway so its global scratch advances), {faults} console-fault inputs (both states reset, as a process restart), {crashes} console crashes and {hangs} console hangs (killed after 30 s) on native-rejected inputs (restart), {} divergences", bad.len());
+    println!("xg_x dcc call sequences ({build}): the verifier's own case order 0..{v0} plus {seqs} random sequences of {len} mixed XGDecodeDCC/XGEncodeDCC calls sharing one console and one native state with no reset between calls; {calls} calls: {same} native S_OK equal to the console (hr, data, meta, sizes), {rejected} native E_INVALIDARG (console called anyway so its global scratch advances), {faults} console-fault inputs (both states reset, as a process restart), {crashes} console crashes and {hangs} console hangs (killed after 10 s) on native-rejected inputs (restart), {} divergences", bad.len());
     assert!(bad.is_empty());
     assert!(same as u64 > (v0 + seqs * len) / 3);
 }
