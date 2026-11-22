@@ -263,6 +263,20 @@ fn bfe(a: u32, o: u32, w: u32, signed: bool) -> u32 {
     }
 }
 
+// SALU field width is the full 7-bit field, unlike the 5-bit VALU width in `bfe` (RDNA2 silicon, #78).
+fn sbfe(a: u32, b: u32, signed: bool) -> u32 {
+    let (o, w) = (b & 31, (b >> 16) & 127);
+    if w == 0 {
+        return 0;
+    }
+    let x = if signed { ((a as i32) >> o) as u32 } else { a >> o };
+    if w >= 32 {
+        return x;
+    }
+    let v = x & ((1 << w) - 1);
+    if signed && (v >> (w - 1)) & 1 != 0 { v | !((1 << w) - 1) } else { v }
+}
+
 #[test]
 fn vop3_basic() {
     let mut c = Cases::new();
@@ -387,9 +401,9 @@ fn salu_basic() {
             s2(&mut c, "s_ashr_i32", 0x22, a, b, 0, r, nz(r as u64));
             s2(&mut c, "s_mul_i32", 0x26, a, b, 1, a.wrapping_mul(b), 1);
             let bb = (b & 31) | ((a.rotate_left(5) & 0x3f) << 16);
-            let r = bfe(a, bb, bb >> 16, false);
+            let r = sbfe(a, bb, false);
             s2(&mut c, "s_bfe_u32", 0x27, a, bb, 0, r, nz(r as u64));
-            let r = bfe(a, bb, bb >> 16, true);
+            let r = sbfe(a, bb, true);
             s2(&mut c, "s_bfe_i32", 0x28, a, bb, 0, r, nz(r as u64));
             scmp(&mut c, "s_cmp_gt_i32", 0x02, a as u64, b as u64, ((a as i32) > (b as i32)) as u32);
             scmp(&mut c, "s_cmp_ge_i32", 0x03, a as u64, b as u64, ((a as i32) >= (b as i32)) as u32);

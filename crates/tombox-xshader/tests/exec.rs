@@ -705,7 +705,8 @@ fn bfe64(a: u64, b: u32, signed: bool) -> u64 {
     if w == 0 {
         return 0;
     }
-    let x = a >> o;
+    // RDNA2 silicon (#78): a signed field shifts arithmetically, so a field reaching bit 63 sign-fills.
+    let x = if signed { ((a as i64) >> o) as u64 } else { a >> o };
     if w >= 64 {
         return x;
     }
