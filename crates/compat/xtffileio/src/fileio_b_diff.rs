@@ -498,5 +498,5 @@ pub unsafe fn calculate_incremental_changes(session: Session, request: *mut c_vo
     set_i32(rb.0, "Result", hr);
     set_u32(rb.0, "FilesDeleted", stats.files_deleted);
     set_u32(rb.0, "DirectoriesDeleted", stats.dirs_deleted);
-    serialize_object(rb.0, response)
+    serialize_response_object(rb.0, response)
 }

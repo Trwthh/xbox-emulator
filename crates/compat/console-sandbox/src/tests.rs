@@ -338,10 +338,11 @@ fn xvcmgmt_queue_follows_the_driver() {
     assert_eq!(Call::new().run(h, xvcmgmt::IOCTL_CLOSE, &server.to_le_bytes(), &mut []), 0);
     assert_eq!(pa.wait(5000), Some((xvcmgmt::STATUS_LOCAL_DISCONNECT, 0)), "pending accepts complete with STATUS_LOCAL_DISCONNECT");
 
+    let earlier = xvcmgmt::host_connections(claims::launch_instance());
     let host = create(h, xvcmgmt::HOST_VM, claims::launch_instance());
     assert_eq!(pend(h, xvcmgmt::IOCTL_CONNECT, host, &mut []).wait(5000), Some((0, 0)), "the emulated host listens on c12a416b + XBOX://LI");
     assert_eq!(Call::new().run(h, xvcmgmt::IOCTL_SHUTDOWN, &host.to_le_bytes(), &mut []), xvcmgmt::STATUS_NOT_IMPLEMENTED_PEER, "graceful disconnect is loopback-only");
-    let conns = xvcmgmt::host_connections(claims::launch_instance());
+    let conns: Vec<u64> = xvcmgmt::host_connections(claims::launch_instance()).into_iter().filter(|c| !earlier.contains(c)).collect();
     assert_eq!(conns.len(), 1);
     assert_eq!(send(h, host, b"to-host"), 0);
     assert_eq!(xvcmgmt::host_take_received(conns[0]), b"to-host");
@@ -531,5 +532,190 @@ fn xvcmgmt_system_codes_follow_the_driver_on_a_fresh_boot() {
     for code in [0x150054u32, 0x15005c] {
         assert_eq!(Call::new().run(h, code, &[0u8; 8], &mut []), xvcmgmt::STATUS_INVALID_DEVICE_REQUEST, "{code:#x} is unknown to this driver build");
     }
+    unsafe { xvcmgmt::close_handle(h) };
+}
+
+#[test]
+fn emulated_host_broker_serves_the_gamecore_classes() {
+    let _g = init();
+    use crate::gcdcom::*;
+    use core::ffi::c_void;
+    unsafe {
+        let name: Vec<u16> = HOST_SERVER.to_ascii_lowercase().encode_utf16().chain(Some(0)).collect();
+        let si = ServerInfo { reserved1: 0, name: name.as_ptr(), auth: core::ptr::null_mut(), reserved2: 1 };
+        let probe = Guid { data1: 0xCFE77662, data2: 0xB1A5, data3: 0x49C9, data4: [0x9D, 0x1A, 0x98, 0xAF, 0x16, 0xCF, 0x72, 0xF2] };
+        let mut mqi = [MultiQi { iid: &IID_API_SERVICE, itf: core::ptr::null_mut(), hr: 1 }, MultiQi { iid: &probe, itf: core::ptr::null_mut(), hr: 1 }];
+        assert_eq!(co_create_instance_ex(&CLSID_API_SERVICE, core::ptr::null_mut(), CLSCTX_REMOTE_SERVER, &si, 2, mqi.as_mut_ptr()), CO_S_NOTALLINTERFACES);
+        assert_eq!((mqi[0].hr, mqi[1].hr), (S_OK, E_NOINTERFACE));
+        assert!(mqi[1].itf.is_null());
+        let broker = mqi[0].itf;
+        let vt = *(broker as *const *const usize);
+        let get: unsafe extern "system" fn(*mut c_void, *const Guid, *const Guid, *const Guid, *mut *mut c_void) -> i32 = core::mem::transmute(*vt.add(3));
+        let release: unsafe extern "system" fn(*mut c_void) -> u32 = core::mem::transmute(*vt.add(2));
+        let li = claims::launch_instance();
+        let launch = li.as_ptr() as *const Guid;
+        let mut o = 0x1usize as *mut c_void;
+        assert_eq!(get(broker, launch, &probe, &probe, &mut o), REGDB_E_CLASSNOTREG);
+        assert!(o.is_null());
+        assert_eq!(get(broker, launch, &ID_PROXY_CONTROLLER2, &probe, &mut o), E_NOINTERFACE);
+
+        assert_eq!(get(broker, launch, &ID_PROXY_CONTROLLER, &ID_PROXY_CONTROLLER, &mut o), S_OK);
+        let cvt = *(o as *const *const usize);
+        let open: unsafe extern "system" fn(*mut c_void, *const Guid, u16, u64, *mut u32) -> i32 = core::mem::transmute(*cvt.add(3));
+        let close: unsafe extern "system" fn(*mut c_void, *const Guid, u16) -> i32 = core::mem::transmute(*cvt.add(4));
+        let mut out = 9u32;
+        assert_eq!(open(o, launch, 3, 4, &mut out), S_OK);
+        assert_eq!(out, 0);
+        assert_eq!(close(o, launch, 3), S_OK);
+        release(o);
+
+        assert_eq!(get(broker, launch, &CLSID_DISPLAY_MODE_SERVER, &IID_DISPLAY_MODE_SERVER3, &mut o), S_OK);
+        let dvt = *(o as *const *const usize);
+        let caps: unsafe extern "system" fn(*mut c_void, *mut DisplayCaps) -> i32 = core::mem::transmute(*dvt.add(6));
+        let mut c = DisplayCaps { a: 1.0, b: 1.0, flags: 0xff };
+        assert_eq!(caps(o, &mut c), S_OK);
+        assert_eq!(c, display_caps_value());
+        let qi: unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32 = core::mem::transmute(*dvt.add(0));
+        let mut insp = core::ptr::null_mut();
+        assert_eq!(qi(o, &IID_IINSPECTABLE, &mut insp), S_OK);
+        release(insp);
+        release(o);
+        release(broker);
+        assert_eq!(all_refs(), [0; 4]);
+        let mut m = [MultiQi { iid: &IID_API_SERVICE, itf: core::ptr::null_mut(), hr: 1 }];
+        assert_eq!(co_create_instance_ex(&probe, core::ptr::null_mut(), CLSCTX_REMOTE_SERVER, &si, 1, m.as_mut_ptr()), REGDB_E_CLASSNOTREG);
+    }
+}
+
+#[test]
+fn host_serves_audio_cursor_and_hdr_classes() {
+    let _g = init();
+    use crate::gcdcom::*;
+    use core::ffi::c_void;
+    unsafe {
+        let name: Vec<u16> = HOST_SERVER.encode_utf16().chain(Some(0)).collect();
+        let si = ServerInfo { reserved1: 0, name: name.as_ptr(), auth: core::ptr::null_mut(), reserved2: 1 };
+        let mut mqi = [MultiQi { iid: &IID_API_SERVICE, itf: core::ptr::null_mut(), hr: 1 }];
+        assert_eq!(co_create_instance_ex(&CLSID_API_SERVICE, core::ptr::null_mut(), CLSCTX_REMOTE_SERVER, &si, 1, mqi.as_mut_ptr()), S_OK);
+        let broker = mqi[0].itf;
+        let slot = |o: *mut c_void, n: usize| *(*(o as *const *const usize)).add(n);
+        let get: unsafe extern "system" fn(*mut c_void, *const Guid, *const Guid, *const Guid, *mut *mut c_void) -> i32 = core::mem::transmute(slot(broker, 3));
+        let release: unsafe extern "system" fn(*mut c_void) -> u32 = core::mem::transmute(slot(broker, 2));
+        let li = claims::launch_instance();
+        let launch = li.as_ptr() as *const Guid;
+
+        let mut a = core::ptr::null_mut();
+        assert_eq!(get(broker, launch, &ID_CROSS_VM_AUDIO, &ID_CROSS_VM_AUDIO, &mut a), S_OK);
+        let call: unsafe extern "system" fn(*mut c_void, i32, *mut u8) -> i32 = core::mem::transmute(slot(a, 3));
+        let ack: unsafe extern "system" fn(*mut c_void, i16) -> i32 = core::mem::transmute(slot(a, 4));
+        let mut env = vec![0u8; AUDIO_ENVELOPE as usize];
+        env[8..12].copy_from_slice(&1u32.to_le_bytes());
+        assert_eq!(call(a, AUDIO_ENVELOPE, env.as_mut_ptr()), S_OK);
+        assert_eq!(i32::from_le_bytes(env[4..8].try_into().unwrap()), E_NOTIMPL, "the host always writes the envelope status");
+        assert_eq!(call(a, 8, env.as_mut_ptr()), E_INVALIDARG);
+        assert_eq!(ack(a, 1), S_OK);
+        release(a);
+
+        let mut c = core::ptr::null_mut();
+        assert_eq!(get(broker, launch, &ID_CURSOR_CONTROLLER, &ID_CURSOR_CONTROLLER, &mut c), S_OK);
+        let kind: unsafe extern "system" fn(*mut c_void, i16) -> i32 = core::mem::transmute(slot(c, 3));
+        let image: unsafe extern "system" fn(*mut c_void, i32, i32, i32, i32, *const u8, i32) -> i32 = core::mem::transmute(slot(c, 4));
+        assert_eq!(kind(c, 3), S_OK);
+        let st = cursor_state();
+        assert_eq!(st.kind, 3);
+        assert_ne!(st.handle, 0, "hand maps to the PC IDC_HAND cursor");
+        assert_eq!(kind(c, -1), S_OK);
+        assert_eq!(cursor_state().handle, 0, "-1 hides the cursor");
+        assert_eq!(kind(c, 99), E_INVALIDARG);
+        let px = vec![0xFFu8; 16 * 16 * 4];
+        assert_eq!(image(c, 16, 16, 1, 1, px.as_ptr(), px.len() as i32), S_OK);
+        assert_eq!(image(c, 16, 16, 1, 1, px.as_ptr(), 10), E_INVALIDARG);
+        assert_eq!(kind(c, 2), S_OK);
+        let st = cursor_state();
+        assert!(st.custom != 0 && st.handle == st.custom, "custom shows the uploaded image");
+        assert_eq!(kind(c, 0), S_OK);
+        release(c);
+
+        let mut d = core::ptr::null_mut();
+        assert_eq!(get(broker, launch, &CLSID_DISPLAY_MODE_SERVER, &IID_DISPLAY_MODE_SERVER4, &mut d), S_OK);
+        let hdr: unsafe extern "system" fn(*mut c_void, u32, *mut HdrInfo) -> i32 = core::mem::transmute(slot(d, 6));
+        let mut info = HdrInfo { min: 9.0, ..Default::default() };
+        let mut floats = [0f32; 3];
+        let want = compat_common::gdk::basic::try_enable_hdr(0, floats.as_mut_ptr());
+        let hr = hdr(d, 0, &mut info);
+        if want == compat_common::gdk::basic::HDR_UNKNOWN {
+            assert_eq!(hr, E_FAIL);
+        } else {
+            assert_eq!(hr, S_OK);
+            assert_eq!(info.enabled, (want == compat_common::gdk::basic::HDR_ENABLED) as u8, "IServer4 answers from the PC display HDR state");
+        }
+        assert_eq!(hdr(d, 7, &mut info), E_INVALIDARG);
+        release(d);
+        release(broker);
+        assert_eq!(more_refs(), [0; 3]);
+        assert_eq!(all_refs(), [0; 4]);
+    }
+}
+
+#[test]
+fn logan_audio_pool_table_follows_the_guest_format() {
+    use crate::logan::*;
+    let base = pool();
+    assert_ne!(base, 0);
+    let a = pool_alloc(3).unwrap() as usize;
+    assert!(a >= FIRST_PAGE);
+    assert_eq!(pool_entry(a), 3 | (1 << REF_SHIFT));
+    assert_eq!((pool_entry(a + 1), pool_entry(a + 2)), (CONTINUATION, CONTINUATION), "every page of a run is marked");
+    let b = pool_alloc(2).unwrap() as usize;
+    assert!(b >= a + 3);
+    pool_release(a);
+    assert_eq!((pool_entry(a), pool_entry(a + 1), pool_entry(a + 2)), (0, 0, 0));
+    assert_eq!(pool_alloc(0), None);
+    pool_release(b);
+    let h = unsafe { open() };
+    assert!(h != -1 && is_device(h as usize));
+    let mut inb = [0u8; 0x1c];
+    inb[0] = 2;
+    let mut out = [0u8; 0x18];
+    let mut ret = 0u32;
+    assert_eq!(unsafe { crate::xvcmgmt::device_io_control(h as usize, IOCTL_MAP_REGION, inb.as_ptr(), 0x1c, out.as_mut_ptr(), 0x18, &mut ret, core::ptr::null_mut()) }, 1);
+    assert_eq!(u64::from_le_bytes(out[0..8].try_into().unwrap()) as usize, base);
+    assert_eq!(u32::from_le_bytes(out[8..12].try_into().unwrap()) as usize, POOL_SIZE);
+    assert_eq!(u32::from_le_bytes(inb[0x18..0x1c].try_into().unwrap()), PARTITION_ID);
+    inb[0] = 1;
+    assert_eq!(unsafe { crate::xvcmgmt::device_io_control(h as usize, IOCTL_MAP_REGION, inb.as_ptr(), 0x1c, out.as_mut_ptr(), 0x18, &mut ret, core::ptr::null_mut()) }, 0);
+    unsafe { crate::xvcmgmt::close_handle(h as usize) };
+    assert!(!is_device(h as usize));
+
+    let id = 0xFFFF_0002;
+    let out = crate::gchost::on_bytes(id, &crate::gchost::frame(0, 0x0002_0008, &[]));
+    let (r, _, _) = crate::gchost::parse(&out, 0);
+    assert_eq!(r, vec![(0x0002_0000, vec![])], "the host acks the audio hello with an empty short<<16 frame");
+    crate::gchost::forget(id);
+}
+
+#[test]
+fn host_pushes_input_records_to_the_title_queue() {
+    let _g = init();
+    let h = open_xvcmgmt();
+    let q = create(h, xvcmgmt::HOST_VM, claims::launch_instance());
+    assert_eq!(pend(h, xvcmgmt::IOCTL_CONNECT, q, &mut []).wait(5000), Some((0, 0)));
+    let conns = xvcmgmt::host_connections(claims::launch_instance());
+    let host = *conns.last().unwrap();
+    assert_eq!(crate::gchost::push_input(host, &[(0x100, 0x41, 0x1e0001), (0x101, 0x41, 0xc01e0001)]), 0);
+    assert_eq!(crate::gchost::push(host, 0x0002_0000, &[]), 0);
+    let mut got = vec![0u8; 256];
+    let c = pend(h, xvcmgmt::IOCTL_RECEIVE, q, &mut got);
+    let (st, n) = c.wait(5000).unwrap();
+    assert_eq!(st, 0);
+    let (msgs, used, _) = crate::gchost::parse(&got[..n], 0);
+    assert_eq!(used, n);
+    assert_eq!(msgs.len(), 2);
+    assert_eq!(msgs[0].0, crate::gchost::WINDOW_MESSAGING);
+    assert_eq!(msgs[0].1.len(), 48, "two 24-byte {{msg, pad, wParam, lParam}} records");
+    assert_eq!(&msgs[0].1[0..4], &0x100u32.to_le_bytes());
+    assert_eq!(&msgs[0].1[8..16], &0x41u64.to_le_bytes());
+    assert_eq!(msgs[1], (0x0002_0000, vec![]));
+    assert_eq!(Call::new().run(h, xvcmgmt::IOCTL_CLOSE, &q.to_le_bytes(), &mut []), 0);
     unsafe { xvcmgmt::close_handle(h) };
 }

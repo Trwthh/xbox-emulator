@@ -160,6 +160,18 @@ pub unsafe fn serialize_object(obj: *mut c_void, message: *mut c_void) -> HRESUL
     (vt::<MessageImplVtbl>(message).set_json_body_w)(message, w.0)
 }
 
+pub unsafe fn serialize_response_object(obj: *mut c_void, response: *mut c_void) -> HRESULT {
+    if obj.is_null() || response.is_null() {
+        return E_INVALIDARG;
+    }
+    let mut w = Bstr::null();
+    let hr = (vt::<JsonObjectVtbl>(obj).stringify)(obj, w.out());
+    if hr < 0 {
+        return hr;
+    }
+    (vt::<MessageVtbl>(response).set_json_body_w)(response, w.0)
+}
+
 pub unsafe fn binary_body(message: *mut c_void) -> Result<(*mut u8, u32), HRESULT> {
     if message.is_null() {
         return Err(E_INVALIDARG);
@@ -264,7 +276,7 @@ pub unsafe extern "system" fn transfer_files_supported(_session: usize, _request
         hr = set_u32(body.0, "ProtocolLevelSupported", DIRECT_PROTOCOL_CURRENT_LEVEL);
     }
     set_i32(body.0, "Result", hr);
-    serialize_object(body.0, response)
+    serialize_response_object(body.0, response)
 }
 
 pub unsafe extern "system" fn get_last_direct_protocol_error(_session: usize, request: *mut c_void, response: *mut c_void) -> HRESULT {
@@ -277,7 +289,7 @@ pub unsafe extern "system" fn get_last_direct_protocol_error(_session: usize, re
             hr = take_error_token(token);
         }
     }
-    serialize_impl(&MsgResponse { result: hr }, response)
+    serialize(&MsgResponse { result: hr }, response)
 }
 
 unsafe fn to_console(session: usize, request: *mut c_void, response: *mut c_void, no_json: bool) -> HRESULT {
@@ -302,7 +314,7 @@ unsafe fn to_console(session: usize, request: *mut c_void, response: *mut c_void
         }
     }
     set_i32(rb.0, "Result", hr);
-    serialize_object(rb.0, response)
+    serialize_response_object(rb.0, response)
 }
 
 pub unsafe extern "system" fn transfer_files_to_console(session: usize, request: *mut c_void, response: *mut c_void) -> HRESULT {
@@ -384,7 +396,7 @@ unsafe fn from_console(session: usize, request: *mut c_void, response: *mut c_vo
         set_u32(rb.0, "FileCount", count)
     };
     set_i32(rb.0, "Result", hr);
-    serialize_object(rb.0, response)
+    serialize_response_object(rb.0, response)
 }
 
 pub unsafe extern "system" fn transfer_files_from_console(session: usize, request: *mut c_void, response: *mut c_void) -> HRESULT {

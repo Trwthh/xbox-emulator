@@ -4,9 +4,11 @@ use compat_common::os_host::patch::{patch_image, Hook};
 
 pub mod claims;
 pub mod fs;
+pub mod gcdcom;
 pub mod gchost;
 pub mod gcreply;
 pub mod hive;
+pub mod logan;
 pub mod modules;
 pub mod power;
 pub mod regnt;
@@ -137,6 +139,7 @@ pub fn hooks() -> Vec<Hook> {
         hook!("CancelIo", &["api-ms-win-core-io-", "kernelbase", "kernel32"], xvcmgmt::cancel_io),
         hook!("CancelIoEx", &["api-ms-win-core-io-", "kernelbase", "kernel32"], xvcmgmt::cancel_io_ex),
         hook!("DeviceIoControl", &["api-ms-win-core-io-", "kernelbase", "kernel32"], xvcmgmt::device_io_control),
+        hook!("CoCreateInstanceEx", &["api-ms-win-core-com-", "combase", "ole32"], gcdcom::co_create_instance_ex),
         hook!("GetFileAttributesW", FILE, fs::get_file_attributes_w),
         hook!("DeleteFileW", FILE, fs::delete_file_w),
         hook!("SetFileInformationByHandle", FILE, fs::set_file_information_by_handle),

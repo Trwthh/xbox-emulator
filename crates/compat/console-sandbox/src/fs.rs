@@ -75,6 +75,9 @@ fn host_wide(console: *const u16) -> Option<(String, Vec<u16>)> {
 }
 
 pub unsafe extern "system" fn create_file_w(name: *const u16, access: u32, share: u32, sa: *const c_void, disposition: u32, flags: u32, template: isize) -> isize {
+    if !name.is_null() && crate::logan::is_device_path(&from_ptr(name)) {
+        return crate::logan::open();
+    }
     match host_wide(name) {
         Some((_, h)) => CreateFileW(h.as_ptr(), access, share, sa, disposition, flags, template),
         None => {

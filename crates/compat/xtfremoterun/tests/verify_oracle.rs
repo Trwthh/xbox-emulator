@@ -43,13 +43,13 @@ fn preload_current_xbtp() {
             .map(|e| e.path().join("out").join("xbtp.dll"))
             .filter(|p| p.is_file())
             .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
-        if let Some(src) = newest {
-            let copy = dir.join("xbtp.dll");
-            std::fs::copy(&src, &copy).unwrap();
-            assert!(xtfmsg::xbtp::preload(&copy), "{}", copy.display());
-        }
+        let src = newest.expect("no build/xbtp/*/out/xbtp.dll to preload");
+        let copy = dir.join("xbtp.dll");
+        std::fs::copy(&src, &copy).unwrap();
+        assert!(xtfmsg::xbtp::preload(&copy), "{}", copy.display());
         return;
     }
+    panic!("no build/xbtp directory above the test exe");
 }
 
 fn consoles() -> &'static Vec<(&'static str, Console)> {

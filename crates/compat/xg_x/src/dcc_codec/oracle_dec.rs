@@ -10,7 +10,6 @@ pub(super) type Ro = extern "system" fn(*mut c_void, *mut u8, *const u8, u32);
 pub(super) type DecF = unsafe extern "system" fn(u32, *const u8, *const u8, *mut u8, i32, i32, *const u32) -> i32;
 pub(super) type EncF = unsafe extern "system" fn(u32, *const u8, *mut u8, *mut u8, *mut u32, i32, i32, *const u32) -> i32;
 
-pub(super) const SC: usize = 0x2d4d0;
 
 pub(super) fn block(r: &mut Rng) -> [u8; 256] {
     let kind = r.next();
@@ -100,7 +99,7 @@ pub(super) fn pull(c: &Con, d: &Dcc) -> Dcc {
     for i in 0..3 {
         n.s[i] = c.get_surf(i);
     }
-    unsafe { core::ptr::copy_nonoverlapping(c.or.rva(SC) as *const u8, n.sc.as_mut_ptr(), 64) };
+    unsafe { core::ptr::copy_nonoverlapping(c.or.sc() as *const u8, n.sc.as_mut_ptr(), 64) };
     n
 }
 
@@ -228,7 +227,7 @@ fn oracle_xgx_dcc_dec_stages() {
 pub(super) fn prefill(c: &Con, d: &Dcc) {
     c.load(d);
     let tm = c.or;
-    unsafe { core::ptr::copy_nonoverlapping(d.sc.as_ptr(), tm.rva(SC) as *mut u8, 64) };
+    unsafe { core::ptr::copy_nonoverlapping(d.sc.as_ptr(), tm.sc() as *mut u8, 64) };
 }
 
 #[test]
@@ -268,7 +267,7 @@ fn oracle_xgx_dcc_dec_e2e() {
 }
 
 pub(super) fn set_scratch(tm: &Tm, s: &Scratch) {
-    unsafe { core::ptr::copy_nonoverlapping(s.b.as_ptr(), tm.rva(SC) as *mut u8, 64) };
+    unsafe { core::ptr::copy_nonoverlapping(s.b.as_ptr(), tm.sc() as *mut u8, 64) };
     *run::SCRATCH.lock().unwrap() = Scratch { b: s.b, unknown: s.unknown };
 }
 

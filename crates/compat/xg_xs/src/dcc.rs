@@ -257,5 +257,7 @@ mod oracle_dec;
 mod oracle_enc;
 #[cfg(test)]
 mod verify_enc;
+#[cfg(test)]
+mod oracle_cases;
 pub mod dec;
 pub mod enc;
