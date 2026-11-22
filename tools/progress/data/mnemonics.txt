@@ -203,13 +203,13 @@ v_lshl_or_b32 5597 5597
 v_lshlrev_b32 21537 21537
 v_lshlrev_b64 18 18
 v_lshrrev_b32 13484 13484
-v_mac_f16 3 3
+v_fmac_f16 3 3
 v_mac_f32 4744 4744
 v_mad_f32 4384 4384
 v_mad_i32_i24 165 165
 v_mad_legacy_f32 922 922
 v_mad_u32_u24 4202 4202
-v_madak_f16 2 2
+v_fmaak_f16 2 2
 v_madak_f32 6254 6254
 v_max3_f16 2 2
 v_max3_f32 24054 24054

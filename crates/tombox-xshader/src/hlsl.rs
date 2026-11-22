@@ -4060,29 +4060,21 @@ impl<'a> Emitter<'a> {
             let x = h16(&s[0])?;
             return self.wv(&d, &format!("(tb_nan({x}) ? 0u : (asuint((int)clamp({x}, -32768.0, 32767.0)) & 0xffffu))"));
         }
-        if matches!(m.as_str(), "v_madak_f16" | "v_madmk_f16") {
-            // The trailing literal dword carries the half-float constant K in its low bits.
-            let k = format!("f16tof32({:#x}u)", ins.raw.last().copied().unwrap_or(0) & 0xffff);
-            let (a, b) = (h16(&s[0])?, h16(&s[1])?);
-            let (a, b, k) = (format!("tb_hz({a})"), format!("tb_hz({b})"), format!("tb_hz({k})"));
-            let (x, y, z) = if m == "v_madak_f16" { (a, b, k) } else { (a, k, b) };
-            let t = self.tmp;
-            self.tmp += 1;
-            self.line(&format!("precise float t{t}m = {x} * {y}; precise float t{t} = tb_hz(f16tof32(tb_f2h(t{t}m))) + {z};"));
-            return self.wv(&d, &format!("tb_hzb({})", hres(format!("t{t}"))));
-        }
-        if m == "v_mac_f16" {
-            self.touch(&d);
-            let t = self.tmp;
-            self.tmp += 1;
-            self.line(&format!("precise float t{t}m = tb_hz({}) * tb_hz({}); precise float t{t} = tb_hz(f16tof32(tb_f2h(t{t}m))) + tb_hz({});", h16(&s[0])?, h16(&s[1])?, h16(&d)?));
-            return self.wv(&d, &format!("tb_hzb({})", hres(format!("t{t}"))));
-        }
-        if m == "v_fma_f16" {
+        if matches!(m.as_str(), "v_fma_f16" | "v_fmac_f16" | "v_fmamk_f16" | "v_fmaak_f16") {
+            let k = || format!("f16tof32({:#x}u)", ins.raw.last().copied().unwrap_or(0) & 0xffff);
+            let (x, y, z) = match m.as_str() {
+                "v_fma_f16" => (h16(&s[0])?, h16(&s[1])?, h16(&s[2])?),
+                "v_fmac_f16" => {
+                    self.touch(&d);
+                    (h16(&s[0])?, h16(&s[1])?, h16(&d)?)
+                }
+                "v_fmaak_f16" => (h16(&s[0])?, h16(&s[1])?, k()),
+                _ => (h16(&s[0])?, k(), h16(&s[1])?),
+            };
             let e = if fma16_operands_exact(&s[..2]) {
-                format!("tb_fma16({}, {}, {})", h16(&s[0])?, h16(&s[1])?, h16(&s[2])?)
+                format!("tb_fma16({x}, {y}, {z})")
             } else {
-                format!("tb_rto((double)({}) * (double)({}) + (double)({}))", h16(&s[0])?, h16(&s[1])?, h16(&s[2])?)
+                format!("tb_rto((double)({x}) * (double)({y}) + (double)({z}))")
             };
             return self.wv(&d, &hres(e));
         }
