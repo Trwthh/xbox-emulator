@@ -361,7 +361,16 @@ fn vop3_basic() {
         }
     }
     let m32 = vop3p(0x20, 10, [v(1), v(2), v(3)], 0, 0, 0, 0);
-    vc(&mut c, "v_fma_mix_f32", &[(1, fb(1.0 + 2f32.powi(-23))), (2, fb(1.0 - 2f32.powi(-24))), (3, fb(-1.0))], &m32, &[10], &[fm(1.0 + 2f32.powi(-23), 1.0 - 2f32.powi(-24), -1.0)]);
+    let x32 = [(1, fb(1.0 + 2f32.powi(-23))), (2, fb(1.0 - 2f32.powi(-24))), (3, fb(-1.0))];
+    vc(&mut c, "v_fma_mix_f32", &x32, &m32, &[10], &[fm(1.0 + 2f32.powi(-23), 1.0 - 2f32.powi(-24), -1.0)]);
+    // Single rounding: 2^-24 - 2^-47 is 0x0001, not the 0 an f32 product gives.
+    vc(&mut c, "v_fma_mixlo_f16", &x32, &vop3p(0x21, 10, [v(1), v(2), v(3)], 0, 0, 0, 0), &[10], &[D16 | 1]);
+    vc(&mut c, "v_fma_mixhi_f16", &x32, &vop3p(0x22, 10, [v(1), v(2), v(3)], 0, 0, 0, 0), &[10], &[(D16 & 0xffff) | (1 << 16)]);
+    // f16 sources: a*b+c rounded to f32 first lands on an f16 tie (0x4414); the exact sum is above it.
+    let x16 = [(1, 0x1111_4149), (2, 0x2222_3e2d), (3, 0x3333_0563)];
+    vc(&mut c, "v_fma_mixlo_f16", &x16, &vop3p(0x21, 10, [v(1), v(2), v(3)], 0, 7, 0, 0), &[10], &[D16 | 0x4415]);
+    vc(&mut c, "v_fma_mixhi_f16", &x16, &vop3p(0x22, 10, [v(1), v(2), v(3)], 0, 7, 0, 0), &[10], &[(D16 & 0xffff) | (0x4415 << 16)]);
+    vc(&mut c, "v_fma_mixlo_f16", &[(1, 0x1111_4149), (2, 0x2222_3e2d), (3, fb(8.219480514526367e-05))], &vop3p(0x21, 10, [v(1), v(2), v(3)], 0, 3, 0, 0), &[10], &[D16 | 0x4415]);
     c.run_both("vop3_basic");
 }
 

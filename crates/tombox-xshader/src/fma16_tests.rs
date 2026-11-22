@@ -152,6 +152,99 @@ fn fma16_rounds_like_an_exact_fma_then_f16() {
     assert!(n > 2_000_000);
 }
 
+fn fma_rto(a: f32, b: f32, c: f32) -> f32 {
+    let (p, dc) = (a as f64 * b as f64, c as f64);
+    let s = p + dc;
+    if !(s.abs() < 1.0e300) {
+        return s as f32;
+    }
+    let bb = s - p;
+    let e = (p - (s - bb)) + (dc - bb);
+    let f = s as f32;
+    let mut u = f.to_bits();
+    if f as f64 != s {
+        if (f as f64).abs() > s.abs() {
+            u -= 1;
+        }
+        u |= 1;
+    } else if e != 0.0 {
+        if (e > 0.0) != (s > 0.0) {
+            u -= 1;
+        }
+        u |= 1;
+    }
+    f32::from_bits(u)
+}
+
+fn split(x: f32) -> (i128, i32) {
+    let b = x.to_bits();
+    let e = ((b >> 23) & 0xff) as i32;
+    let m = (b & 0x7f_ffff) as i128;
+    let (m, k) = if e == 0 { (m, -149) } else { (m | 0x80_0000, e - 150) };
+    (if b >> 31 != 0 { -m } else { m }, k)
+}
+
+fn exact_mix16(a: f32, b: f32, c: f32) -> u16 {
+    let ((ma, ka), (mb, kb), (mc, kc)) = (split(a), split(b), split(c));
+    let k = if mc == 0 { ka + kb } else if ma * mb == 0 { kc } else { (ka + kb).min(kc) };
+    let x = if ma * mb == 0 { 0 } else { (ma * mb) << (ka + kb - k) } + if mc == 0 { 0 } else { mc << (kc - k) };
+    if x == 0 {
+        return if ma * mb == 0 && mc == 0 && (a.is_sign_negative() != b.is_sign_negative()) && c.is_sign_negative() { 0x8000 } else { 0 };
+    }
+    let sign = if x < 0 { 0x8000u16 } else { 0 };
+    let m = x.abs();
+    let top = 127 - m.leading_zeros() as i32 + k;
+    if top > 16 {
+        return sign | 0x7c00;
+    }
+    let q = top.max(-14) - 10;
+    let n = if q <= k { m << (k - q) } else { round_shift(m, (q - k) as u32) };
+    sign | f2h_soft((n as f64 * 2f64.powi(q)) as f32)
+}
+
+#[test]
+fn fma_rto_rounds_mixed_sources_once() {
+    let mut s = 0x0bad_5eed_cafe_f00du64;
+    let mut n = 0u64;
+    for i in 0..3_000_000u64 {
+        let r = xs(&mut s);
+        let g = |k: u64, lo: u32| -> f32 { f32::from_bits(((k as u32) & 0x807f_ffff) | ((lo + ((k >> 23) as u32) % 40) << 23)) };
+        let (a, b) = (g(r, 100), g(r >> 20, 107));
+        let mut c = if r % 4 == 0 { f16_to_f32((r >> 40) as u16 & 0x7bff) } else { g(r >> 33, 95) };
+        if i % 3 == 0 {
+            c = f32::from_bits((-(a * b)).to_bits() ^ ((r >> 52) as u32 & 0xff));
+        }
+        if i % 7 == 0 {
+            c = f16_to_f32(f2h_soft(c));
+        }
+        if !c.is_finite() {
+            continue;
+        }
+        let (got, want) = (f2h_soft(fma_rto(a, b, c)), exact_mix16(a, b, c));
+        assert_eq!(got, want, "a={:08x} b={:08x} c={:08x}", a.to_bits(), b.to_bits(), c.to_bits());
+        n += 1;
+    }
+    assert!(n > 2_900_000);
+    let (a, b) = (1.0 + 2f32.powi(-23), 1.0 - 2f32.powi(-24));
+    assert_eq!(f2h_soft(fma_rto(a, b, -1.0)), 0x0001);
+    assert_eq!(f2h_soft(a * b - 1.0), 0);
+    let (x, y, z) = (f16_to_f32(0x4149), f16_to_f32(0x3e2d), f16_to_f32(0x0563));
+    assert_eq!(f2h_soft(fma_rto(x, y, z)), 0x4415);
+    assert_eq!(f2h_soft(fma16(x, y, z)), 0x4415);
+    assert_eq!(f2h_soft(x * y + z), 0x4414);
+    assert_eq!(fma_rto(f32::INFINITY, 1.0, 1.0), f32::INFINITY);
+    assert!(fma_rto(f32::INFINITY, 0.0, 1.0).is_nan());
+    assert_eq!(f2h_soft(fma_rto(f32::MAX, 2.0, 0.0)), 0x7c00);
+}
+
+#[test]
+fn fma_rto_matches_the_helper() {
+    let line = crate::hlsl::CUBE_HELPERS.lines().find(|l| l.starts_with("float tb_fma_rto(")).expect("tb_fma_rto").replace("precise ", "");
+    for part in ["(double)a * (double)b", "if (!(abs(s) < 1.0e300)) return (float)s;", "if ((double)f != s) { if (abs((double)f) > abs(s)) u -= 1u; u |= 1u; } else if (e != 0.0) { if ((e > 0.0) != (s > 0.0)) u -= 1u; u |= 1u; }"] {
+        assert!(line.contains(part), "{part}");
+    }
+}
+
 #[test]
 fn fma16_signed_zero_and_specials() {
     let z = f16_to_f32(0x0000);

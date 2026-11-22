@@ -123,6 +123,7 @@ float tb_rev(float x) { return (abs(x) < 0.5) ? x : x - round(x); }
 float tb_ldexp32(float x, int e) { int k = clamp(e, -330, 330); return (float)((double)x * asdouble(0u, (uint)(k + 1023) << 20)); }
 float tb_rto(double s) { float f = (float)s; if ((double)f != s) { uint u = asuint(f); if (abs((double)f) > abs(s)) u -= 1u; f = asfloat(u | 1u); } return f; }
 float tb_fma16(float a, float b, float c) { precise float p = a * b; precise float s = p + c; if ((asuint(s) & 0x7fffffffu) >= 0x7f800000u) return s; precise float bb = s - p; precise float e = (p - (s - bb)) + (c - bb); uint u = asuint(s); if (e != 0.0) { if ((e > 0.0) != (s > 0.0)) u -= 1u; u |= 1u; } return asfloat(u); }
+float tb_fma_rto(float a, float b, float c) { precise double p = (double)a * (double)b; precise double dc = (double)c; precise double s = p + dc; if (!(abs(s) < 1.0e300)) return (float)s; precise double bb = s - p; precise double e = (p - (s - bb)) + (dc - bb); float f = (float)s; uint u = asuint(f); if ((double)f != s) { if (abs((double)f) > abs(s)) u -= 1u; u |= 1u; } else if (e != 0.0) { if ((e > 0.0) != (s > 0.0)) u -= 1u; u |= 1u; } return asfloat(u); }
 float tb_mull(float a, float b) { return (a == 0.0 || b == 0.0) ? 0.0 : a * b; }
 #ifdef TB_FAST_FMA
 float tb_fma(float a, float b, float c) { precise float r = mad(a, b, c); uint m = 0x7fffffffu; uint xa = asuint(a) & m, xb = asuint(b) & m, xc = asuint(c) & m; if (max(max(xa, xb), xc) > 0x7f800000u) return asfloat(((xa > 0x7f800000u) ? asuint(a) : ((xb > 0x7f800000u) ? asuint(b) : asuint(c))) | 0x400000u); return ((asuint(r) & m) > 0x7f800000u) ? asfloat(0x7fc00000u) : r; }
@@ -4451,7 +4452,10 @@ impl<'a> Emitter<'a> {
                 }
                 v.push(e);
             }
-            let e = format!("{} * {} + {}", v[0], v[1], v[2]);
+            // f16 results round once: round-to-odd at f32 first, then tb_f2h. Three f16
+            // sources keep the product exact in f32; any f32 source needs the double form.
+            let f = if opsel_hi == 7 { "tb_fma16" } else { "tb_fma_rto" };
+            let e = format!("{f}({}, {}, {})", v[0], v[1], v[2]);
             return match m.as_str() {
                 "v_fma_mix_f32" => self.wv(&d, &format!("asuint(tb_fma({}, {}, {}))", v[0], v[1], v[2])),
                 // The f16 result replaces one half of the destination; the other half is kept.
