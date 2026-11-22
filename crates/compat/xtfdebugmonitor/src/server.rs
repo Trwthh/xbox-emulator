@@ -68,7 +68,7 @@ pub unsafe extern "system" fn query_monitor_handler(_session: usize, _request: u
     query_monitor(profile::current(), _session, _request, reply)
 }
 
-pub unsafe fn query_monitor(pf: &Profile, _session: usize, _request: usize, reply: usize) -> HRESULT {
+pub unsafe fn query_monitor(pf: &'static Profile, _session: usize, _request: usize, reply: usize) -> HRESULT {
     let mut op = Op::begin(pf, "QueryMonitorHandler", b"XtfDebugMonitor: QueryMonitorHandler\0", reply);
     let mut reply_body = Com::null();
     let mut processes = Com::null();
@@ -167,7 +167,7 @@ pub unsafe extern "system" fn monitor_process_handler(session: usize, request: u
     monitor_process(profile::current(), session, request, reply)
 }
 
-pub unsafe fn monitor_process(pf: &Profile, session: usize, request: usize, reply: usize) -> HRESULT {
+pub unsafe fn monitor_process(pf: &'static Profile, session: usize, request: usize, reply: usize) -> HRESULT {
     let mut op = Op::begin(pf, "MonitorProcessHandler", b"XtfDebugMonitor: MonitorProcessHandler\0", reply);
     let mut body = Com::null();
     'done: {
@@ -207,7 +207,7 @@ pub unsafe extern "system" fn detach_process_handler(_session: usize, request: u
     detach_process(profile::current(), _session, request, reply)
 }
 
-pub unsafe fn detach_process(pf: &Profile, _session: usize, request: usize, reply: usize) -> HRESULT {
+pub unsafe fn detach_process(pf: &'static Profile, _session: usize, request: usize, reply: usize) -> HRESULT {
     let mut op = Op::begin(pf, "DetachProcessHandler", b"XtfDebugMonitor: DetachProcessHandler\0", reply);
     if let Some(dm) = instance() {
         let mut body = Com::null();
@@ -249,7 +249,7 @@ pub unsafe extern "system" fn continue_process_handler(_session: usize, request:
     continue_process(profile::current(), _session, request, reply)
 }
 
-pub unsafe fn continue_process(pf: &Profile, _session: usize, request: usize, reply: usize) -> HRESULT {
+pub unsafe fn continue_process(pf: &'static Profile, _session: usize, request: usize, reply: usize) -> HRESULT {
     let mut op = Op::begin(pf, "ContinueProcessHandler", b"XtfDebugMonitor: ContinueProcessHandler\0", reply);
     if let Some(dm) = instance() {
         let mut body = Com::null();

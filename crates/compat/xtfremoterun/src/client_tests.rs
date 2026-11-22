@@ -18,6 +18,9 @@ struct DispatcherVtbl {
     release: unsafe extern "system" fn(Obj) -> u32,
     shutdown: unsafe extern "system" fn(Obj) -> HRESULT,
     add_extension: unsafe extern "system" fn(Obj, *const GUID, Obj) -> HRESULT,
+    register_extension: usize,
+    register_redirect: usize,
+    set_session_key: unsafe extern "system" fn(Obj, *const u16) -> HRESULT,
 }
 
 const IID_XBTP_DISPATCHER: GUID = GUID::new(0xe6358d7e, 0x3b86, 0x425b, [0xb3, 0xd7, 0x3d, 0x21, 0x82, 0xb9, 0x76, 0x6a]);
@@ -45,6 +48,13 @@ impl Dispatcher {
         assert_eq!(XtfOrdinal_4(&REMOTE_RUN_EXTENSION_ID, &IID_XBTP_EXTENSION_METADATA, &mut md), S_OK);
         assert_eq!((d.vt().add_extension)(d.0, &REMOTE_RUN_EXTENSION_ID, md), S_OK);
         com::release(md);
+        d
+    }
+
+    unsafe fn with_remote_run_keyed(key: &str) -> Dispatcher {
+        let d = Dispatcher::with_remote_run();
+        let k = wide(key);
+        assert_eq!((d.vt().set_session_key)(d.0, k.as_ptr()), S_OK);
         d
     }
 
@@ -634,4 +644,39 @@ fn client_19041_protocol_against_scripted_server() {
         let (hr, _, out, err) = scripted_19041(&["more:{\"MsgId\":1,\"Run_Output\":\"ab\"}", "more:{\"MsgId\":3,\"Run_Error_Output\":\"zz\"}", "end:{\"ExitCode\":0}"], RUN_FLAG_REDIRECT_OUTPUT, true);
         assert_eq!((hr, out.as_str(), err.as_str()), (0, "ab", "zz"));
     }
+}
+
+#[test]
+fn keyed_dispatcher_refuses_unauthenticated_remote_run_sessions_like_console() {
+    let _g = guard();
+    let _d = unsafe { Dispatcher::with_remote_run_keyed("k3yXtf") };
+    let dir = crate::tests::root().join("console").join("fs").join("C").join("authmarkers");
+    std::fs::create_dir_all(&dir).unwrap();
+    let marker = dir.join("xtfremoterun_marker.txt");
+    let _ = std::fs::remove_file(&marker);
+    for addr in ["127.0.0.1", "127.0.0.1/system"] {
+        let (hr, code) = on_worker(90, move || unsafe {
+            let (_, c) = Client::create(Some(addr));
+            let mut code = 7u32;
+            let hr = c.run_ex(Some(&child_cmd("child_marker_main")), Some("C:\\authmarkers"), RUN_FLAG_WAIT, 0, null_mut(), Some(&mut code));
+            (hr, code)
+        });
+        assert_eq!(hr as u32, 0x8c11_040b, "{addr}");
+        assert_eq!(code, 0, "{addr}");
+        assert!(!marker.exists(), "{addr} launched the child without the session key");
+    }
+    let link = XBTP_PORT_SYSTEM | XBTP_PORT_KIND_LINK;
+    let r = on_worker(60, move || unsafe {
+        let mut out: Vec<HRESULT> = Vec::new();
+        for addr in ["127.0.0.1", "127.0.0.1+wrong", "127.0.0.1+k3yXtf"] {
+            let a = wide(addr);
+            let mut s: Obj = null_mut();
+            out.push(open_vm_session(a.as_ptr(), link, &mut s));
+            if !s.is_null() {
+                com::release(s);
+            }
+        }
+        out
+    });
+    assert_eq!(r.iter().map(|h| *h as u32).collect::<Vec<_>>(), vec![0x8c11_040b, 0x8c11_040b, 0]);
 }

@@ -311,11 +311,15 @@ pub(crate) fn color_in(d: &mut Dcc, t: &mut Tmp) -> Result<(), i32> {
     let cm = color_mode(d);
     color(d)?;
     if cm != 1 {
-        t.b[56..64].copy_from_slice(&8u64.to_le_bytes());
-        t.b[54] = 0;
-        t.b[55] = 0;
-        for p in 0..64 {
-            t.ever[p] = p >= 54 || (t.ever[p] && (16..48).contains(&p));
+        if crate::dcc::xg_build() == 22000 {
+            t.b[56..64].copy_from_slice(&8u64.to_le_bytes());
+            t.b[54] = 0;
+            t.b[55] = 0;
+            for p in 0..64 {
+                t.ever[p] = p >= 54 || (t.ever[p] && (16..48).contains(&p));
+            }
+        } else {
+            t.ever = [false; 64];
         }
     }
     Ok(())
@@ -325,8 +329,17 @@ pub(crate) fn channel_in(d: &mut Dcc, t: &mut Tmp) -> Result<(), i32> {
     let v48 = d.r32(0x48);
     channel(d)?;
     if v48 != 0 && v48 != 0xc {
-        t.ever = [false; 64];
-        for p in [39usize, 44, 45, 46, 47, 54, 55] {
+        let (written, zero): (&[core::ops::Range<usize>], &[usize]) = match crate::dcc::xg_build() {
+            22000 => (&[0..64], &[39, 44, 45, 46, 47, 54, 55]),
+            22621 => (&[0..36, 40..56], &[46, 47]),
+            _ => (&[0..64], &[]),
+        };
+        for r in written {
+            for p in r.clone() {
+                t.ever[p] = false;
+            }
+        }
+        for &p in zero {
             t.b[p] = 0;
             t.ever[p] = true;
         }
@@ -335,6 +348,9 @@ pub(crate) fn channel_in(d: &mut Dcc, t: &mut Tmp) -> Result<(), i32> {
 }
 
 pub(crate) fn conv_residue(p: Option<usize>) -> ([u8; 64], [bool; 64]) {
+    if crate::dcc::xg_build() == 19041 {
+        return ([0; 64], [true; 64]);
+    }
     let mut b = [0u8; 64];
     b[0] = 0x3d;
     b[8..16].fill(0xff);

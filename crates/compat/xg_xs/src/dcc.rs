@@ -162,6 +162,28 @@ thread_local! {
 
 pub(crate) const CONV_FROM_ENTRY: usize = 0x1968;
 
+pub(crate) static BUILD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub(crate) fn xg_build() -> u32 {
+    let o = BUILD.load(std::sync::atomic::Ordering::Acquire);
+    if o != 0 {
+        return o;
+    }
+    if crate::layout::legacy_19041() {
+        return 19041;
+    }
+    let b = compat_common::os_host::k32legacy::console_os_build();
+    let v = if b >= 22621 {
+        22621
+    } else if b >= 22000 {
+        22000
+    } else {
+        19041
+    };
+    BUILD.store(v, std::sync::atomic::Ordering::Release);
+    v
+}
+
 fn enc_try(pre: &Dcc, fills: &[[u8; 64]; 3], conv: &[u8; 64]) -> Result<(Dcc, u32), i32> {
     let mut t = Dcc { m: pre.m.clone(), b: pre.b };
     enc::run_model(&mut t, fills, conv)?;
@@ -265,7 +287,7 @@ pub unsafe fn encode_export(count: u32, src: *const u8, dst: *mut u8, meta: *mut
         let size = match enc_block(&mut d) {
             Ok(s) => s,
             Err(e) => {
-                compat_common::record(crate::M, "XGEncodeDCC", &format!("block {} format {} swizzle {} dim {} params {:#x},{:#x}: console output for this block is undefined (integer-divide fault in its color stage, or output bytes copied from never-written stack scratch in relayout 0x4ac90 or convert 0x4adc0, whose contents depend on prior stack contents, buffer addresses or the C runtime's vsprintf frame), native rejects", i, fmt, sw, dim, p0, p1));
+                compat_common::record(crate::M, "XGEncodeDCC", &format!("block {} format {} swizzle {} dim {} params {:#x},{:#x}: the console output for this block depends on stack scratch that native does not model for this build (relayout 0x4ac90 / convert 0x4adc0 holes carrying caller-stack addresses, channel/colour locals or pre-driver frame bytes), or its colour stage faults; native rejects", i, fmt, sw, dim, p0, p1));
                 return e;
             }
         };

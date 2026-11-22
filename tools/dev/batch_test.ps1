@@ -8,6 +8,9 @@ param(
   [int]$TrackmaniaSeconds = 600,
   [int]$XDefiantSeconds = 900,
   [int]$TerrariaSeconds = 600,
+  [int]$MinecraftSeconds = 600,
+  [int]$CaptureEvery = 60,
+  [string]$CompatDir = 'D:\TomBox\tools\dev\compat',
   [string]$Root = 'D:\TomBox',
   [string]$Report = 'D:\TomBox\tools\dev\batch_report.md',
   [string]$OutRoot = 'D:\TomBox\tools\dev\batch_runs',
@@ -43,7 +46,11 @@ $Titles = @(
     Exe = 'D:\xbox-pc-port\games\XDefiant\extracted\Mount\Rogue_scarlett_rtx.exe'; Saved = @('D:\xbox-pc-port\emulator\run-xdefiant') },
   [pscustomobject]@{ Slug = 'terraria'; Name = 'Terraria'; Script = 'run_xone.ps1'; Args = @{ Title = 'Terraria'; Drive = 'U:' };
     LogDir = (Join-Path $env:TEMP 'tombox-terraria'); Proc = 'Terraria'; Seconds = $TerrariaSeconds; Kind = 'generic'; Xone = $true;
-    Exe = ''; Saved = @('D:\xbox-pc-port\emulator\run-xone\Terraria') }
+    Exe = ''; Saved = @('D:\xbox-pc-port\emulator\run-xone\Terraria') },
+  [pscustomobject]@{ Slug = 'minecraft'; Name = 'Minecraft Preview'; Script = 'run_minecraft.ps1'; Args = @{ Drive = 'M:' };
+    LogDir = (Join-Path $env:TEMP 'tombox-minecraft'); Proc = 'Minecraft.Windows'; Seconds = $MinecraftSeconds; Kind = 'generic'; Xone = $false; DbgArgs = $true;
+    Exe = 'D:\xbox-pc-port\games\Microsoft.MinecraftBeta_1.18.3064.0_neutral__8wekyb3d8bbwe_xs-PATCHED\Microsoft.MinecraftBeta_1.18.3064.0_neutral__8wekyb3d8bbwe_xs\Minecraft.Windows.exe'
+    Saved = @('D:\xbox-pc-port\emulator\run-minecraft') }
 )
 if ($Only.Count) { $Titles = @($Titles | Where-Object { $Only -contains $_.Slug }) }
 foreach ($t in $Titles) {
@@ -248,6 +255,107 @@ public static class TbAudio {
 }
 '@ }
 
+if (-not ('TbFrame' -as [type])) { Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+public static class TbFrame {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
+  [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint f);
+  [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr h);
+  [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+  public class Shot { public int W, H; public double Mean, Std; public int Distinct; public string Method; public bool Drawn; public string Verdict; }
+  static IntPtr Find(uint[] pids, out int w, out int h) {
+    var want = new HashSet<uint>(pids);
+    IntPtr best = IntPtr.Zero; long area = 0; int bw = 0, bh = 0;
+    EnumWindows((hw, l) => {
+      uint pid; GetWindowThreadProcessId(hw, out pid);
+      if (!want.Contains(pid) || !IsWindowVisible(hw) || IsIconic(hw)) return true;
+      RECT r; if (!GetClientRect(hw, out r)) return true;
+      int cw = r.R - r.L, ch = r.B - r.T;
+      if (cw < 64 || ch < 64) return true;
+      if ((long)cw * ch > area) { area = (long)cw * ch; best = hw; bw = cw; bh = ch; }
+      return true;
+    }, IntPtr.Zero);
+    w = bw; h = bh;
+    return best;
+  }
+  static void Stats(Bitmap b, Shot s) {
+    var d = b.LockBits(new Rectangle(0, 0, b.Width, b.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+    var px = new int[1];
+    var seen = new HashSet<int>();
+    double sum = 0, sq = 0; int n = 0;
+    for (int gy = 0; gy < 72; gy++) {
+      int y = (int)((gy + 0.5) * b.Height / 72);
+      for (int gx = 0; gx < 128; gx++) {
+        int x = (int)((gx + 0.5) * b.Width / 128);
+        Marshal.Copy(IntPtr.Add(d.Scan0, y * d.Stride + x * 4), px, 0, 1);
+        int c = px[0];
+        int r = (c >> 16) & 255, g = (c >> 8) & 255, bl = c & 255;
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+        sum += lum; sq += lum * lum; n++;
+        seen.Add(((r >> 3) << 10) | ((g >> 3) << 5) | (bl >> 3));
+      }
+    }
+    b.UnlockBits(d);
+    s.Mean = sum / n; s.Std = Math.Sqrt(Math.Max(0, sq / n - s.Mean * s.Mean)); s.Distinct = seen.Count;
+    s.Drawn = s.Std >= 4 && s.Distinct >= 24;
+    s.Verdict = s.Mean < 3 && s.Std < 2 ? "black" : (s.Std < 2 || s.Distinct < 8 ? "uniform" : (!s.Drawn ? "nearly uniform" : (s.Mean < 18 ? "dark" : "drawn")));
+  }
+  public static Shot Capture(uint[] pids, string path) {
+    int w, h;
+    IntPtr hw = Find(pids, out w, out h);
+    if (hw == IntPtr.Zero) return null;
+    var s = new Shot { W = w, H = h };
+    var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+    if (IsHungAppWindow(hw)) { bmp.Dispose(); s.Method = "skipped"; s.Verdict = "hung"; return s; }
+    bool ok = false;
+    var job = System.Threading.Tasks.Task.Run(() => { using (var g = Graphics.FromImage(bmp)) { IntPtr dc = g.GetHdc(); ok = PrintWindow(hw, dc, 3); g.ReleaseHdc(dc); } });
+    if (!job.Wait(3000)) { s.Method = "PrintWindow timed out"; s.Verdict = "hung"; return s; }
+    s.Method = ok ? "PrintWindow" : "PrintWindow failed";
+    Stats(bmp, s);
+    bmp.Save(path, ImageFormat.Png);
+    bmp.Dispose();
+    return s;
+  }
+}
+'@ }
+
+function Invoke-FrameCapture($res, [uint32[]]$Pids, [double]$El, [string]$Tag) {
+  $png = Join-Path $res.Dir ("frame_{0:0000}s{1}.png" -f [int]$El, $Tag)
+  try { $s = [TbFrame]::Capture($Pids, $png) } catch { $res.Notes.Add("frame capture at +$([int]$El)s failed: $($_.Exception.Message)"); return }
+  if (-not $s) { $res.Frames.Add([pscustomobject]@{ T = [int]$El; Png = ''; W = 0; H = 0; Mean = 0; Std = 0; Distinct = 0; Drawn = $false; Verdict = 'no window'; Method = '' }); return }
+  if ($s.Verdict -eq 'hung') { $png = '' }
+  $res.Frames.Add([pscustomobject]@{ T = [int]$El; Png = $png; W = $s.W; H = $s.H; Mean = [Math]::Round($s.Mean, 1); Std = [Math]::Round($s.Std, 1); Distinct = $s.Distinct; Drawn = $s.Drawn; Verdict = $s.Verdict; Method = $s.Method })
+  Say ("  +{0:N0}s frame {1}x{2} mean {3:N1} std {4:N1} colours {5}: {6}" -f $El, $s.W, $s.H, $s.Mean, $s.Std, $s.Distinct, $s.Verdict) $(if ($s.Drawn) { 'Green' } else { 'Yellow' })
+}
+
+function Get-DumpRoot($t) {
+  if (-not $t.Exe) { return '' }
+  $i = $t.Exe.IndexOf('\extracted', [StringComparison]::OrdinalIgnoreCase)
+  if ($i -gt 0) { return $t.Exe.Substring(0, $i + 10) }
+  return (Split-Path $t.Exe -Parent)
+}
+
+function Get-DumpSnapshot([string]$Dir) {
+  $h = @{}
+  if (-not $Dir -or -not (Test-Path -LiteralPath $Dir)) { return $h }
+  foreach ($f in [IO.Directory]::EnumerateFiles($Dir, '*', [IO.SearchOption]::AllDirectories)) {
+    $fi = New-Object IO.FileInfo $f
+    $h[$f] = "$($fi.Length)|$($fi.LastWriteTimeUtc.Ticks)"
+  }
+  return $h
+}
+
 function Get-Tree([int]$RootPid) {
   $all = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, Name)
   $set = New-Object System.Collections.Generic.List[int]
@@ -316,7 +424,8 @@ function Set-BatchEnv {
 function Get-ArgList($t, [switch]$Dry) {
   $a = @('-NoProfile', '-File', (Join-Path $Root $t.Script))
   foreach ($k in $t.Args.Keys) { $a += "-$k"; $a += "$($t.Args[$k])" }
-  if ($t.Xone -and $DbgLayer) { $a += '-Agility'; $a += $Agility; $a += '-AgilityVersion'; $a += "$AgilityVersion"; $a += '-D3d12Debug' }
+  if ($t.Xone) { $a += '-XoneTarget'; $a += (Join-Path $Root 'target\release') }
+  if (($t.Xone -or $t.DbgArgs) -and $DbgLayer) { $a += '-Agility'; $a += $Agility; $a += '-AgilityVersion'; $a += "$AgilityVersion"; $a += '-D3d12Debug' }
   if ($Dry) { $a += '-DryRun' } else { $a += '-Seconds'; $a += "$($t.Seconds + 120)" }
   return $a
 }
@@ -357,7 +466,7 @@ foreach ($t in $Titles) {
   Say "=== $($t.Name)" 'Cyan'
   $dir = Join-Path $RunRoot $t.Slug
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  $res = [ordered]@{ Title = $t; Dir = $dir; Status = ''; Notes = (New-Object System.Collections.Generic.List[string]); Live = [ordered]@{}; Plan = @(); Net = $null; Exit = $null; Elapsed = 0; Dumps = @(); Analysis = $null; Tail = @() }
+  $res = [ordered]@{ Title = $t; Dir = $dir; Status = ''; Notes = (New-Object System.Collections.Generic.List[string]); Live = [ordered]@{}; Plan = @(); Net = $null; Exit = $null; Elapsed = 0; Dumps = @(); Analysis = $null; Tail = @(); Frames = (New-Object System.Collections.Generic.List[object]); Compat = $null }
   $script = Join-Path $Root $t.Script
   $res.Net = Test-ScriptNetwork $script
   if ($res.Net.Hits.Count) { $res.Notes.Add("run script references external hosts/addresses: $($res.Net.Hits -join ', ')") }
@@ -401,6 +510,10 @@ foreach ($t in $Titles) {
   }
 
   foreach ($f in Get-SourceFiles $t.LogDir) { if ($f.Src -ne 'launcher') { Remove-Item -LiteralPath $f.Path -Force -ErrorAction SilentlyContinue } }
+  $dumpRoot = Get-DumpRoot $t
+  $snap = Get-DumpSnapshot $dumpRoot
+  Say "  dump snapshot: $($snap.Count) files under $dumpRoot" 'DarkGray'
+  $netOk = $false
   $launcher = Join-Path $dir 'launcher.txt'
   $start = Get-Date
   $ps = Start-Process -FilePath 'powershell.exe' -ArgumentList $la -RedirectStandardOutput $launcher -RedirectStandardError (Join-Path $dir 'launcher.err.txt') -WindowStyle Hidden -PassThru
@@ -413,6 +526,7 @@ foreach ($t in $Titles) {
   $tree = Get-Tree $ps.Id
   $nextLog = $start
   $nextTree = $start
+  $nextShot = 20
   while ($true) {
     $el = ((Get-Date) - $start).TotalSeconds
     Start-Sleep -Milliseconds $(if ($el -lt 120) { 100 } else { 500 })
@@ -429,14 +543,16 @@ foreach ($t in $Titles) {
           if (($m.Src -eq 'any' -or $m.Src -eq $s.Src) -and $m.Rx.IsMatch($l)) { $res.Live[$m.Name] = [Math]::Round($el, 1); Say ("  +{0:N0}s milestone: {1}" -f $el, $m.Name) 'Green' }
         }
         if ($s.Src -eq 'ods') { $u = $UiRx.Match($l); if ($u.Success) { Say ("  +{0:N0}s UI State {1} -> {2}" -f $el, $u.Groups[1].Value, $u.Groups[2].Value) 'Green' } }
-        if ($s.Src -eq 'compat') { $fm = $FpsRx.Match($l); if ($fm.Success) { $lastFps = $fm.Groups[1].Value } }
+        if ($s.Src -eq 'compat') { $fm = $FpsRx.Match($l); if ($fm.Success) { $lastFps = $fm.Groups[1].Value }; if (-not $netOk -and $l -match '\[net_guard\] installed') { $netOk = $true; Say ("  +{0:N0}s network guard installed" -f $el) 'Green' } }
         if ($s.Src -eq 'trace' -and $l -match 'firstChance=0|ACCESS_VIOLATION|EXIT_PROCESS|\[HANG\]|too many exceptions') { Say ("  +{0:N0}s {1}" -f $el, $l.Trim()) 'Yellow' }
       }
     }
     if (((Get-Date) - $lastBeat).TotalSeconds -ge 60) { $lastBeat = Get-Date; Say ("  +{0:N0}s running; fps {1}; muted {2}" -f $el, $(if ($lastFps) { $lastFps } else { '-' }), $muted) 'DarkGray' }
+    if (-not $netOk -and $el -ge 45) { $res.Notes.Add("network guard not installed after $([int]$el)s: run stopped to keep the title offline"); Say '  network guard missing: stopping the run' 'Red'; $timedOut = $true; break }
+    if ($el -ge $nextShot) { Invoke-FrameCapture $res ([uint32[]]$pids) $el ''; $nextShot = if ($nextShot -lt 45) { 45 } else { $nextShot + $CaptureEvery } }
     $ps.Refresh()
     if ($ps.HasExited) { break }
-    if ($el -ge $t.Seconds) { $timedOut = $true; break }
+    if ($el -ge $t.Seconds) { $timedOut = $true; Invoke-FrameCapture $res ([uint32[]]$pids) $el '_final'; break }
   }
   $res.Elapsed = [Math]::Round(((Get-Date) - $start).TotalSeconds, 1)
   if ($timedOut) {
@@ -447,6 +563,9 @@ foreach ($t in $Titles) {
     foreach ($g in $left) { try { Stop-Process -Id $g.Id -Force } catch {} }
   }
   Start-Sleep -Seconds 2
+  $after = Get-DumpSnapshot $dumpRoot
+  $changed = @($after.Keys | Where-Object { -not $snap.ContainsKey($_) -or $snap[$_] -ne $after[$_] }) + @($snap.Keys | Where-Object { -not $after.ContainsKey($_) })
+  if ($changed.Count) { $res.Notes.Add("DUMP MODIFIED: $($changed.Count) file(s) under $dumpRoot changed during the run: $(($changed | Select-Object -First 10) -join ', ')"); Say "  DUMP MODIFIED: $($changed.Count) files" 'Red' } else { $res.Notes.Add("dump unchanged ($($after.Count) files under $dumpRoot)") }
   try { foreach ($m in [TbAudio]::Restore()) { $res.Notes.Add("audio: $m") } } catch { $res.Notes.Add("audio: restoring mute state failed: $($_.Exception.Message)") }
   if (-not $muted) { $res.Notes.Add('audio: no audio session of the run was seen, nothing muted or restored') }
   foreach ($f in Get-SourceFiles $t.LogDir) { if ($f.Src -ne 'launcher' -and (Test-Path -LiteralPath $f.Path)) { Copy-Item -LiteralPath $f.Path $dir -Force } }
@@ -466,6 +585,15 @@ foreach ($t in $Titles) {
 foreach ($v in $oldEnv.Keys) { [Environment]::SetEnvironmentVariable($v, $oldEnv[$v]) }
 try { if ([TbAudio]::HeldCount) { foreach ($m in [TbAudio]::Restore()) { Say "audio: $m" } } } catch {}
 
+. (Join-Path $PSScriptRoot 'compat_list.ps1')
+$BuildStamp = Get-BuildStamp $Root
+if ($DryRun) { $CompatDir = Join-Path $RunRoot 'compat' }
+if ($true) {
+  $entries = [ordered]@{}
+  foreach ($r in $results) { if ($r.Analysis -or $r.Frames.Count) { $r.Compat = Get-CompatEntry $r $BuildStamp $Root $Stamp; $entries[$r.Title.Slug] = $r.Compat } }
+  if ($entries.Count) { try { Update-CompatList $CompatDir $entries $Titles; Say "compat list: $CompatDir" 'Cyan' } catch { Say "compat list update failed: $($_.Exception.Message)" 'Red' } }
+}
+
 W "# Batch test report"
 W
 W "- Mode: **$Mode**"
@@ -477,8 +605,10 @@ W "- D3D12 debug layer: $(if ($DbgLayer) { "ON via Agility SDK $AgilityVersion (
 W "- Audio: each title's WASAPI session is muted from the batch (polled every 0.1 s for the first 2 min, then 0.5 s; each session's prior mute state is restored after the title exits); input: none injected; windows: shown by the title"
 foreach ($p in $pre) { W "- **Preflight problem:** $(ConvertTo-MdText $p)" }
 W
-W "| Title | Result | Furthest milestone | FPS min/avg/max (last, p99 ms) | Exit | Defect groups |"
-W "|---|---|---|---|---|---|"
+W "- Build: $($BuildStamp.Stamp)"
+W
+W "| Title | Compat | Result | Furthest milestone | Frames drawn | FPS min/avg/max (last, p99 ms) | Exit | Defect groups |"
+W "|---|---|---|---|---|---|---|---|"
 foreach ($r in $results) {
   $a = $r.Analysis
   $order = @($MilestoneDefs[$r.Title.Kind] | ForEach-Object { $_.Name })
@@ -490,7 +620,9 @@ foreach ($r in $results) {
     if ($a.Fps.Count) { $st = $a.Fps | Measure-Object -Minimum -Maximum -Average; $fps = "{0:N1}/{1:N1}/{2:N1} ({3:N1}, {4})" -f $st.Minimum, $st.Average, $st.Maximum, $a.Fps[$a.Fps.Count - 1], $(if ($a.P99) { $a.P99 } else { '-' }) }
     foreach ($c in $a.Defects.Keys) { $groups += $a.Defects[$c].Count }
   }
-  W "| $(ConvertTo-MdText $r.Title.Name) | $(ConvertTo-MdText $r.Status) | $far | $fps | $(ConvertTo-MdText $(if ($r.Exit) { $r.Exit } else { '-' })) | $groups |"
+  $cs = if ($r.Compat) { $r.Compat.status } else { '-' }
+  $fd = if ($r.Compat) { if ($r.Compat.frames_drawn) { 'yes' } else { 'no' } } else { '-' }
+  W "| $(ConvertTo-MdText $r.Title.Name) | $cs | $(ConvertTo-MdText $r.Status) | $far | $fd | $fps | $(ConvertTo-MdText $(if ($r.Exit) { $r.Exit } else { '-' })) | $groups |"
 }
 W
 foreach ($r in $results) {
@@ -500,6 +632,11 @@ foreach ($r in $results) {
   W "- Status: $(ConvertTo-MdText $r.Status)$(if ($r.Elapsed) { " after $($r.Elapsed) s" })"
   W "- Launch: ``powershell.exe $((Get-ArgList $t | Select-Object -Skip 2) -join ' ')`` (timeout $($t.Seconds) s, window visible, no input)"
   W "- Logs: ``$($r.Dir)``"
+  if ($r.Compat) { W "- Compatibility: **$($r.Compat.status)**; furthest $($r.Compat.furthest); frames drawn $(if ($r.Compat.frames_drawn) { 'yes' } else { 'no' }); top issue: ``$(ConvertTo-MdText $r.Compat.top_issue)``" }
+  if ($r.Frames.Count) {
+    W "- Frame captures ($($r.Frames.Count)):"
+    foreach ($f in $r.Frames) { W ("  - +{0}s {1}: {2}x{3} mean {4} std {5} colours {6} via {7} ``{8}``" -f $f.T, $f.Verdict, $f.W, $f.H, $f.Mean, $f.Std, $f.Distinct, $f.Method, $f.Png) }
+  }
   foreach ($n in $r.Notes) { W "- $(ConvertTo-MdText $n)" }
   if ($r.Dumps.Count) { W "- Crash dumps: $(($r.Dumps | ForEach-Object { '`' + $_.Name + '`' }) -join ', ')" } elseif (-not $DryRun) { W '- Crash dumps: none written (mdbg does not write minidumps; none in CrashDumps or the title Saved folders)' }
   W

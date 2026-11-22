@@ -88,7 +88,12 @@ pub fn executables_for(dir: &Path, drive: char) -> (Vec<TitleExecutable>, Vec<St
             rejected.push(name);
             continue;
         }
-        ok.push(TitleExecutable { console_path: format!("{drive}:\\{rel}"), host_path: host });
+        let console_path = format!("{drive}:\\{rel}");
+        if crate::launch::console_key(&console_path).is_none() {
+            rejected.push(name);
+            continue;
+        }
+        ok.push(TitleExecutable { console_path, host_path: host });
     }
     (ok, rejected)
 }

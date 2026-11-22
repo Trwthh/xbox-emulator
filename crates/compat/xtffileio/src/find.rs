@@ -191,7 +191,7 @@ impl Enumerator {
         loop {
             attempt += 1;
             if self.handle == INVALID_HANDLE_VALUE {
-                let h = match host_path(search) {
+                let h = match crate::paths::host_search_path(search) {
                     Ok(p) => unsafe { FindFirstFileExW(p.wide.as_ptr(), 1, data, 0, core::ptr::null_mut(), FIND_FIRST_EX_LARGE_FETCH) },
                     Err(e) => {
                         unsafe { file::SetLastError(e) };

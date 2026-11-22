@@ -15,6 +15,8 @@ mod tests;
 mod client_tests;
 #[cfg(test)]
 mod oracle_tests;
+#[cfg(test)]
+mod build_tests;
 
 use xtfmsg::com::metadata::OperationFn;
 use xtfmsg::com::Obj;

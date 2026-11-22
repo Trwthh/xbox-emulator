@@ -165,6 +165,27 @@ fn child_wait_main() {
 
 #[test]
 #[ignore]
+fn child_title_state_main() {
+    if !child_enabled() {
+        return;
+    }
+    let exe = std::env::current_exe().unwrap();
+    let dir = exe.parent().unwrap().to_path_buf();
+    let st = crate::title::state();
+    if st.dir.as_deref() != Some(dir.as_path()) {
+        std::process::exit(10);
+    }
+    if st.executables != vec![crate::title::TitleExecutable { console_path: CHILD_IMAGE.to_string(), host_path: dir.join(CHILD_NAME) }] {
+        std::process::exit(11);
+    }
+    if st.job == 0 {
+        std::process::exit(12);
+    }
+    std::process::exit(0);
+}
+
+#[test]
+#[ignore]
 fn child_marker_main() {
     if !child_enabled() {
         return;
@@ -416,9 +437,11 @@ fn create_process_maps_images_and_directories_through_the_sandbox() {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("present.exe"), b"MZ").unwrap();
         let r = run_with(&request(1, 0, "C:\\tools\\present -x", "", false), &[]);
-        assert_eq!(r.end.as_deref(), Some(error_body(hr_from_wait(ERROR_NOT_SUPPORTED) as u32, &[]).as_str()));
+        assert_eq!(r.end.as_deref(), Some(error_body(hr_from_wait(ERROR_FILE_NOT_FOUND) as u32, &[]).as_str()));
         let r = run_with(&request(1, 0, &child_cmd("child_marker_main"), "C:\\no\\such\\dir", false), &[]);
         assert_eq!(r.end.as_deref(), Some(error_body(hr_from_wait(ERROR_DIRECTORY) as u32, &[]).as_str()));
+        let r = run_with(&request(1, 0, &child_cmd("child_title_state_main"), "", false), &[]);
+        assert_eq!(r.end.as_deref(), Some("{\"ExitCode\":0}"), "production gdk::title() lookup inside the launched title exe");
         let host = title_dir().join(CHILD_NAME);
         assert_eq!(resolve_image("\"G:\\xtfremoterun_child\" a b").unwrap(), format!("\"{}\" a b", host.display()));
         assert_eq!(resolve_image("g:/XTFREMOTERUN_CHILD.EXE x").unwrap(), format!("\"{}\" x", host.display()));
@@ -560,3 +583,141 @@ fn console_pipe_helpers_round_trip_ansi_text() {
     }
 }
 
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetCommandLineW() -> *const u16;
+}
+
+#[link(name = "advapi32")]
+extern "system" {
+    fn GetTokenInformation(token: HANDLE, class: u32, info: *mut c_void, len: u32, ret: *mut u32) -> BOOL;
+}
+
+pub const PROBE_ENV: &str = "XTFREMOTERUN_PROBE_HANDLE";
+pub const PROBE_SECRET: &[u8] = b"remoterun-secret";
+pub const SE_CHANGE_NOTIFY_LUID: u32 = 23;
+
+pub unsafe fn token_privileges() -> Vec<u32> {
+    let mut token = OwnedHandle::null();
+    assert_ne!(OpenProcessToken(GetCurrentProcess(), 8, &mut token.0), 0);
+    let mut buf = vec![0u32; 1024];
+    let mut len = 0u32;
+    assert_ne!(GetTokenInformation(token.get(), 3, buf.as_mut_ptr() as *mut c_void, (buf.len() * 4) as u32, &mut len), 0);
+    let n = buf[0] as usize;
+    (0..n).map(|i| buf[1 + i * 3]).collect()
+}
+
+#[test]
+#[ignore]
+fn child_args_main() {
+    if !child_enabled() {
+        return;
+    }
+    let line = unsafe { from_wide(GetCommandLineW()) };
+    let mut o = std::io::stdout();
+    let hex: String = line.bytes().map(|b| format!("{b:02x}")).collect();
+    o.write_all(format!("[{hex}]\n").as_bytes()).unwrap();
+    o.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    std::process::exit(0);
+}
+
+#[test]
+#[ignore]
+fn child_privileges_main() {
+    if !child_enabled() {
+        return;
+    }
+    let p = unsafe { token_privileges() };
+    if p.len() == 1 && p[0] != SE_CHANGE_NOTIFY_LUID {
+        std::process::exit(99);
+    }
+    std::process::exit(100 + p.len() as i32);
+}
+
+#[test]
+#[ignore]
+fn child_handle_probe_main() {
+    if !child_enabled() {
+        return;
+    }
+    let Some(v) = std::env::var(PROBE_ENV).ok().and_then(|v| v.parse::<usize>().ok()) else { std::process::exit(30) };
+    let mut buf = [0u8; 64];
+    let mut read = 0u32;
+    let mut avail = 0u32;
+    let ok = unsafe { PeekNamedPipe(v as HANDLE, buf.as_mut_ptr() as *mut c_void, buf.len() as u32, &mut read, &mut avail, null_mut()) };
+    if ok != 0 && &buf[..read as usize] == PROBE_SECRET {
+        std::process::exit(20);
+    }
+    std::process::exit(0);
+}
+
+#[test]
+fn create_process_passes_arguments_verbatim_after_environment_expansion() {
+    let _g = guard();
+    unsafe {
+        let tail = " \"a  b\"   c\\\"d %SystemRoot%x";
+        let r = run_with(&request(RUN_FLAG_REDIRECT_OUTPUT | 1, 20, &format!("{}{tail}", child_cmd("child_args_main")), "", false), &[]);
+        assert_eq!(r.end.as_deref(), Some("{\"ExitCode\":0}"));
+        let out = joined(&r.sent, MSGID_RUN_OUTPUT, P_RUN_OUTPUT);
+        let hex = out.split('[').nth(1).and_then(|t| t.split(']').next()).unwrap_or_default().to_string();
+        let bytes: Vec<u8> = (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()).collect();
+        let out = format!("[{}]", String::from_utf8_lossy(&bytes));
+        let host = title_dir().join(CHILD_NAME);
+        let expected = format!("[\"{}\" tests::child_args_main --exact --ignored --nocapture --test-threads=1 -q \"a  b\"   c\\\"d C:\\Windowsx]", host.display());
+        assert!(out.contains(&expected), "{out:?} vs {expected:?}");
+    }
+}
+
+#[test]
+fn create_process_runs_with_restricted_token_unless_keep_token() {
+    let _g = guard();
+    unsafe {
+        let mine = token_privileges();
+        assert!(mine.len() > 1, "the test process token has only {mine:?}");
+        let r = run_with(&request(1, 0, &child_cmd("child_privileges_main"), "", false), &[]);
+        assert_eq!(r.end.as_deref(), Some("{\"ExitCode\":101}"), "a launch without RUN_FLAG_KEEP_TOKEN keeps only SeChangeNotifyPrivilege");
+        let r = run_with(&request(1 | RUN_FLAG_KEEP_TOKEN, 0, &child_cmd("child_privileges_main"), "", false), &[]);
+        assert_eq!(r.end.as_deref(), Some(format!("{{\"ExitCode\":{}}}", 100 + mine.len()).as_str()), "RUN_FLAG_KEEP_TOKEN launches with the caller token");
+    }
+}
+
+#[test]
+fn create_process_inherits_only_the_redirect_pipes() {
+    let _g = guard();
+    unsafe {
+        let sa = SecurityAttributes { length: core::mem::size_of::<SecurityAttributes>() as u32, descriptor: null_mut(), inherit: 1 };
+        let mut r: HANDLE = null_mut();
+        let mut wr: HANDLE = null_mut();
+        assert_ne!(CreatePipe(&mut r, &mut wr, &sa, 0), 0);
+        let (r, wr) = (OwnedHandle(r), OwnedHandle(wr));
+        let mut n = 0u32;
+        assert_ne!(WriteFile(wr.get(), PROBE_SECRET.as_ptr() as *const c_void, PROBE_SECRET.len() as u32, &mut n, null_mut()), 0);
+        std::env::set_var(PROBE_ENV, (r.get() as usize).to_string());
+        let plain = run_with(&request(1, 0, &child_cmd("child_handle_probe_main"), "", false), &[]);
+        let redirected = run_with(&request(RUN_FLAG_REDIRECT_INPUT | RUN_FLAG_REDIRECT_OUTPUT | 1, 20, &child_cmd("child_handle_probe_main"), "", true), &[]);
+        std::env::remove_var(PROBE_ENV);
+        assert_eq!(plain.end.as_deref(), Some("{\"ExitCode\":0}"), "an unrelated inheritable parent pipe is visible in a plain child");
+        assert_eq!(redirected.end.as_deref(), Some("{\"ExitCode\":0}"), "an unrelated inheritable parent pipe is visible in a redirected child");
+        drop(wr);
+        drop(r);
+    }
+}
+
+#[test]
+fn unregistered_images_fail_with_one_error_whatever_exists_on_disk() {
+    let _g = guard();
+    unsafe {
+        let dir = root().join("console").join("fs").join("C").join("tools");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("present.exe"), b"MZ").unwrap();
+        let expected = error_body(hr_from_wait(ERROR_FILE_NOT_FOUND) as u32, &[]);
+        for cmd in ["C:\\tools\\present.exe -x", "C:\\tools\\present -x", "C:\\tools\\absent.exe -x", "G:\\unlisted.exe", "G:\\..\\escape.exe", "G:\\absent.exe", "G:\\sub\\..\\..\\escape.exe"] {
+            let r = run_with(&request(1, 0, cmd, "", false), &[]);
+            assert_eq!(r.end.as_deref(), Some(expected.as_str()), "{cmd}");
+        }
+        let host = title_dir().join(CHILD_NAME);
+        assert_eq!(resolve_image("G:\\sub\\..\\xtfremoterun_child.exe y").unwrap(), format!("\"{}\" y", host.display()));
+        assert_eq!(resolve_image("\\\\?\\G:\\xtfremoterun_child.exe").unwrap(), format!("\"{}\"", host.display()));
+    }
+}

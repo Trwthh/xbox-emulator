@@ -28,6 +28,154 @@ fn paths_stay_inside_the_sandbox() {
     assert!(fs::resolve(r"\\.\PhysicalDrive0").is_none());
 }
 
+fn windows_last_error() -> u32 {
+    unsafe { GetLastError() }
+}
+
+fn close_handle(h: isize) {
+    unsafe { CloseHandle(h as usize) };
+}
+
+fn assert_contained(input: &str, console: &str, host: &std::path::Path) {
+    let drive = console.chars().next().unwrap();
+    let root = fs::drive_dir(drive).to_string_lossy().to_ascii_lowercase();
+    let h = host.to_string_lossy().to_string();
+    for probe in [h.clone(), format!("\\\\?\\{h}")] {
+        let full = fs::full_path_name(&probe).unwrap_or_default().to_ascii_lowercase();
+        let full = full.strip_prefix("\\\\?\\").unwrap_or(&full).to_string();
+        assert!(full == root || full.starts_with(&format!("{root}\\")), "{input:?} -> {console} -> {h} normalizes to {full} outside {root}");
+        let tail = &full[root.len()..];
+        assert!(tail.split('\\').skip(1).all(|c| !c.contains(':') || c.matches(':').count() <= 2), "{input:?} -> {full}");
+    }
+    assert!(console.len() >= 3 && console.as_bytes()[1] == b':' && console.as_bytes()[2] == b'\\', "{input:?} -> {console}");
+}
+
+#[test]
+fn drive_style_components_mid_path_cannot_escape() {
+    let _g = init();
+    let me = std::env::current_dir().unwrap().join("Cargo.toml").to_string_lossy().to_string();
+    let cases = [
+        format!(r"C:\a\{me}"),
+        r"C:\a\D:\xbox-pc-port\emulator\Cargo.toml".to_string(),
+        r"C:\a\D:xbox-pc-port\emulator\Cargo.toml".to_string(),
+        r"C:\x\..\D:\xbox-pc-port\emulator\Cargo.toml".to_string(),
+        r"C:\a\b:c\d".to_string(),
+        r"D:\a\C:\Windows\win.ini".to_string(),
+        r"D:\a\c:\Windows\win.ini".to_string(),
+        r"\.\C:\x".to_string(),
+        r"C:\a\\?\D:\b".to_string(),
+        r"C:\a\x:foo\b".to_string(),
+        r"C:\a\D:".to_string(),
+        r"C:\x\C:".to_string(),
+        r"\\?\C:\a\D:\b".to_string(),
+        r"\??\C:\a\D:\b".to_string(),
+        r"C:\a\?\b".to_string(),
+        r"C:\a\*".to_string(),
+        r"C:\Windows\win.ini:".to_string(),
+        r"C:\Windows\win.ini:s:t:u".to_string(),
+    ];
+    for c in &cases {
+        assert_eq!(fs::try_resolve(c).map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID), "{c}");
+    }
+    unsafe {
+        let n = w(r"C:\a\D:\xbox-pc-port\emulator\Cargo.toml");
+        assert_eq!(fs::create_file_w(n.as_ptr(), 0x8000_0000, 7, core::ptr::null(), 3, 0, 0), -1);
+        assert_eq!(windows_last_error(), fs::ERROR_INVALID_NAME);
+        let n = w(&format!(r"C:\a\{me}"));
+        assert_eq!(fs::get_file_attributes_w(n.as_ptr()), u32::MAX);
+        assert_eq!(windows_last_error(), fs::ERROR_INVALID_NAME);
+    }
+}
+
+#[test]
+fn console_path_rules_match_win32_and_ntfs() {
+    let _g = init();
+    let ok = |s: &str| fs::try_resolve(s).unwrap_or_else(|e| panic!("{s}: {e:#x}")).0;
+    assert_eq!(ok(r"C:\Windows\win.ini:stream"), r"C:\Windows\win.ini:stream");
+    assert_eq!(ok(r"C:\Windows\win.ini::$DATA"), r"C:\Windows\win.ini::$DATA");
+    assert_eq!(ok(r"C:\Windows\win.ini:s:$DATA"), r"C:\Windows\win.ini:s:$DATA");
+    assert_eq!(ok(r"C:\a\x.  "), r"C:\a\x");
+    assert_eq!(ok(r"C:\a\x.\b"), r"C:\a\x\b");
+    assert_eq!(ok(r"C:\a\...\b"), r"C:\a\...\b");
+    assert_eq!(ok(r"C:\a\.. .\b"), r"C:\a\.. \b");
+    assert_eq!(ok(r"C:\a\..  "), r"C:\a");
+    assert_eq!(ok(r"C:Windows\x"), r"C:\Windows\System32\Windows\x");
+    assert_eq!(ok(r"D:foo\bar"), r"D:\foo\bar");
+    assert_eq!(ok(r"\\.\C:\a\b"), r"C:\a\b");
+    assert_eq!(ok(r"\\?\D:\x\y"), r"D:\x\y");
+    assert_eq!(ok(r"\??\D:\x\y\"), r"D:\x\y");
+    assert_eq!(ok(r"\\?\C:\Windows\...\x"), r"C:\Windows\...\x");
+    assert_eq!(fs::try_resolve(r"\\?\C:\Windows\...").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID));
+    assert_eq!(fs::try_resolve(r"\\?\C:\Windows\..\..\x").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID));
+    assert_eq!(fs::try_resolve(r"\??\D:\x\..\..\..\y").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID));
+    assert_eq!(fs::try_resolve(r"\\?\C:\a\\b").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID));
+    assert_eq!(fs::try_resolve(r"\\?\C:\a\.\b").map(|r| r.0), Err(fs::STATUS_OBJECT_PATH_NOT_FOUND));
+    assert_eq!(fs::try_resolve(r"\\?\C:\a\x.").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID));
+    assert_eq!(fs::try_resolve(r"\\?\UNC\server\share\f").map(|r| r.0), Err(fs::STATUS_BAD_NETWORK_PATH));
+    assert_eq!(fs::try_resolve(r"\??\UNC\server\share\f").map(|r| r.0), Err(fs::STATUS_BAD_NETWORK_PATH));
+    assert_eq!(fs::try_resolve(r"//server/share/f").map(|r| r.0), Err(fs::STATUS_BAD_NETWORK_PATH));
+    assert_eq!(fs::try_resolve(r"\\?\GLOBALROOT\Device\HarddiskVolume1\Windows").map(|r| r.0), Err(fs::STATUS_OBJECT_PATH_NOT_FOUND));
+    assert_eq!(fs::try_resolve(r"\\.\C:\a\..\..\x").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_NOT_FOUND));
+    assert_eq!(fs::try_resolve(r"\\.\C:").map(|r| r.0), Err(fs::STATUS_ACCESS_DENIED));
+    assert_eq!(fs::try_resolve(r"\\?\\??\C:\x").map(|r| r.0), Err(fs::STATUS_OBJECT_PATH_NOT_FOUND));
+    assert_eq!(fs::try_resolve("C:\\a\\b\u{1}c").map(|r| r.0), Err(fs::STATUS_OBJECT_NAME_INVALID));
+}
+
+#[test]
+fn rename_target_is_resolved_inside_the_sandbox() {
+    let _g = init();
+    fs::ensure_system_drive();
+    let src = fs::drive_dir('C').join("ren_src.txt");
+    std::fs::write(&src, b"x").unwrap();
+    let dst = fs::drive_dir('C').join("ren_dst.txt");
+    let _ = std::fs::remove_file(&dst);
+    let rename = |h: isize, target: &str| unsafe {
+        let name: Vec<u16> = target.encode_utf16().collect();
+        let mut buf = vec![0u64; (24 + name.len() * 2).div_ceil(8)];
+        let p = buf.as_mut_ptr() as *mut u8;
+        (p.add(16) as *mut u32).write_unaligned((name.len() * 2) as u32);
+        core::ptr::copy_nonoverlapping(name.as_ptr() as *const u8, p.add(20), name.len() * 2);
+        fs::set_file_information_by_handle(h, 3, p, (20 + name.len() * 2 + 2) as u32)
+    };
+    unsafe {
+        let n = w(r"C:\ren_src.txt");
+        let h = fs::create_file_w(n.as_ptr(), 0x8001_0000, 7, core::ptr::null(), 3, 0, 0);
+        assert_ne!(h, -1);
+        assert_eq!(rename(h, r"C:\a\D:\ren_escape.txt"), 0);
+        assert_eq!(windows_last_error(), fs::ERROR_INVALID_NAME);
+        assert_ne!(rename(h, r"C:\ren_dst.txt"), 0);
+        close_handle(h);
+    }
+    assert!(dst.is_file() && !src.exists());
+    let _ = std::fs::remove_file(&dst);
+}
+
+#[test]
+fn fuzzed_console_paths_never_leave_their_drive() {
+    let _g = init();
+    let alphabet = ["a", "b", "C", "D", "x", ":", "\\", "/", ".", " ", "?", "*", "CON", "..", "\\\\?\\", "\\??\\", "\\\\.\\", "C:", "d:", "$DATA", "\\..\\", "...", "nul", ". "];
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let mut accepted = 0usize;
+    for _ in 0..50_000 {
+        let len = (next() % 40) as usize;
+        let mut s = String::new();
+        for _ in 0..len {
+            s.push_str(alphabet[(next() % alphabet.len() as u64) as usize]);
+        }
+        if let Ok((console, host)) = fs::try_resolve(&s) {
+            accepted += 1;
+            assert_contained(&s, &console, &host);
+        }
+    }
+    assert!(accepted > 1000, "fuzz accepted only {accepted}");
+}
+
 #[test]
 fn reg_get_value_reports_sizes_types_and_missing_values() {
     let _g = init();

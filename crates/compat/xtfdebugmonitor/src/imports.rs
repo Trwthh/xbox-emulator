@@ -33,15 +33,15 @@ mod linked {
     pub fn resolve(name: &[u8]) -> Option<usize> {
         let name = name.strip_suffix(&[0]).unwrap_or(name);
         Some(match name {
-            b"XbtpCreateExtensionMetadata" => XbtpCreateExtensionMetadata as usize,
-            b"XbtpCreateJsonArray" => XbtpCreateJsonArray as usize,
-            b"XbtpCreateJsonObject" => XbtpCreateJsonObject as usize,
-            b"XbtpCreateMessage" => XbtpCreateMessage as usize,
-            b"XbtpGetCurrentTlsEventData" => XbtpGetCurrentTlsEventData as usize,
-            b"XbtpGetJsonObjectFromUtf8" => XbtpGetJsonObjectFromUtf8 as usize,
-            b"XbtpOpenSession2" => XbtpOpenSession2 as usize,
-            b"?LogInfoV@@YAXPEBDPEAD@Z" => LogInfoV as usize,
-            b"?LogWarningV@@YAXPEBDPEAD@Z" => LogWarningV as usize,
+            b"XbtpCreateExtensionMetadata" => XbtpCreateExtensionMetadata as *const () as usize,
+            b"XbtpCreateJsonArray" => XbtpCreateJsonArray as *const () as usize,
+            b"XbtpCreateJsonObject" => XbtpCreateJsonObject as *const () as usize,
+            b"XbtpCreateMessage" => XbtpCreateMessage as *const () as usize,
+            b"XbtpGetCurrentTlsEventData" => XbtpGetCurrentTlsEventData as *const () as usize,
+            b"XbtpGetJsonObjectFromUtf8" => XbtpGetJsonObjectFromUtf8 as *const () as usize,
+            b"XbtpOpenSession2" => XbtpOpenSession2 as *const () as usize,
+            b"?LogInfoV@@YAXPEBDPEAD@Z" => LogInfoV as *const () as usize,
+            b"?LogWarningV@@YAXPEBDPEAD@Z" => LogWarningV as *const () as usize,
             _ => return None,
         })
     }

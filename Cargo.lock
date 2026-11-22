@@ -276,6 +276,7 @@ dependencies = [
 name = "kernelbase"
 version = "0.1.0"
 dependencies = [
+ "compat-common",
  "xone-exports",
 ]
 

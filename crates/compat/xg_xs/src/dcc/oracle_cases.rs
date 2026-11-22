@@ -83,6 +83,7 @@ pub(super) fn case(i: u64) -> Case {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_bucket() {
     let Ok(path) = std::env::var("TOMBOX_DCC_IDS") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(path).unwrap().split_whitespace().map(|x| x.parse().unwrap()).collect();
@@ -219,6 +220,7 @@ fn hx(b: &[u8]) -> String {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_snap() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_SNAP") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -258,6 +260,7 @@ fn oracle_dcc_cases_snap() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_fill() {
     let Ok(path) = std::env::var("TOMBOX_DCC_IDS") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(path).unwrap().split_whitespace().map(|x| x.parse().unwrap()).collect();
@@ -317,6 +320,7 @@ fn oracle_dcc_cases_fill() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_relay_holes() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_RH") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -360,6 +364,7 @@ fn oracle_dcc_cases_relay_holes() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_feed() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_FEED") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -409,6 +414,7 @@ fn oracle_dcc_cases_feed() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_relay_chain() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_CHAIN") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -439,6 +445,7 @@ fn oracle_dcc_cases_relay_chain() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_feedall() {
     let Ok(path) = std::env::var("TOMBOX_DCC_FEEDALL") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
@@ -516,6 +523,7 @@ fn oracle_dcc_cases_feedall() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_decfeed() {
     let Ok(path) = std::env::var("TOMBOX_DCC_DECFEED") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
@@ -576,6 +584,7 @@ fn oracle_dcc_cases_decfeed() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_holes() {
     let Ok(path) = std::env::var("TOMBOX_DCC_HOLES") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
@@ -665,6 +674,7 @@ fn oracle_dcc_cases_holes() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_possens() {
     let Ok(path) = std::env::var("TOMBOX_DCC_POSSENS") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
@@ -752,6 +762,7 @@ fn oracle_dcc_cases_possens() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_addr() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_ADDR") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -835,6 +846,7 @@ pub(super) fn thread_variants(h: usize, id: u64) -> Vec<(i32, Vec<u8>, Vec<u8>)>
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_thread() {
     let Ok(path) = std::env::var("TOMBOX_DCC_THREAD") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
@@ -911,6 +923,7 @@ fn find_ptrs(b: &[u8], lo: usize, hi: usize) -> Vec<(usize, usize)> {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_rsp() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_RSP") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -970,13 +983,16 @@ fn native_case(c: &Case, e: Option<usize>) -> (i32, Vec<u8>, Vec<u8>) {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_model() {
     let Ok(path) = std::env::var("TOMBOX_DCC_MODEL") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let o = crate::oracle::oracle().expect("console xg_xs.dll");
-    let pe = unsafe { RspProbe::new(o.h, 0xa97a) };
-    let pd = unsafe { RspProbe::new(o.h, 0xacfe) };
+    let b = build_of(&o);
+    println!("model build {}", b.name);
+    let pe = unsafe { RspProbe::new(o.h, b.enc_chk) };
+    let pd = unsafe { RspProbe::new(o.h, b.dec_chk) };
     let h = o.h;
     let vary: u32 = std::env::var("TOMBOX_DCC_VARY").ok().map(|s| s.parse().unwrap()).unwrap_or(!0);
     let mut stat: std::collections::BTreeMap<&'static str, Vec<String>> = std::collections::BTreeMap::new();
@@ -1010,6 +1026,7 @@ fn oracle_dcc_cases_model() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_writer() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_WRITER") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -1091,6 +1108,7 @@ impl Drop for Up {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_decobj() {
     let Ok(ids) = std::env::var("TOMBOX_DCC_DECOBJ") else { return };
     let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -1118,6 +1136,7 @@ fn oracle_dcc_cases_decobj() {
 }
 
 #[test]
+#[ignore]
 fn oracle_dcc_cases_decres() {
     let Ok(path) = std::env::var("TOMBOX_DCC_DECRES") else { return };
     let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
@@ -1164,5 +1183,89 @@ fn oracle_dcc_cases_decres() {
     v.sort_by(|a, b| b.1.cmp(&a.1));
     for (k, n) in v.iter().take(60) {
         println!("decres {:4} {}", n, k);
+    }
+}
+
+pub(super) struct Build {
+    pub(super) name: &'static str,
+    pub(super) enc: usize,
+    pub(super) enc_chk: usize,
+    pub(super) relays: [usize; 3],
+    pub(super) relay: usize,
+    pub(super) convs: usize,
+    pub(super) conv: usize,
+    pub(super) dec_chk: usize,
+    pub(super) dconv: usize,
+    pub(super) drelays: [usize; 3],
+}
+
+pub(super) const BUILDS: [Build; 3] = [
+    Build { name: "22000 XDefiant/Terraria", enc: 0xa960, enc_chk: 0xa97a, relays: [0x262e8, 0x26366, 0x263d0], relay: 0x4ac90, convs: 0x28c58, conv: 0x4adc0, dec_chk: 0xacfe, dconv: 0x232be, drelays: [0x2334e, 0x233cd, 0x2351d] },
+    Build { name: "22621 Trackmania", enc: 0xb7e0, enc_chk: 0xb7fa, relays: [0x29958, 0x299d6, 0x29a40], relay: 0x3e240, convs: 0x2c278, conv: 0x3e370, dec_chk: 0xbb7e, dconv: 0x2f9b6, drelays: [0x2fa46, 0x2fac4, 0x2fc13] },
+    Build { name: "19041 Fortnite", enc: 0x70a0, enc_chk: 0x70ba, relays: [0x2bfa9, 0x2c011, 0x2c065], relay: 0x4b440, convs: 0x2e8ba, conv: 0x4b570, dec_chk: 0x740f, dconv: 0x28c9b, drelays: [0x28d15, 0x28d7d, 0x28ec4] },
+];
+
+pub(super) fn build_of(o: &crate::oracle::Oracle) -> &'static Build {
+    let e = o.f("XGEncodeDCC") as usize - o.h;
+    BUILDS.iter().find(|b| b.enc == e).expect("known xg_xs build")
+}
+
+fn erel(b: &[u8], e: usize) -> String {
+    let mut t = String::new();
+    for q in 0..b.len() / 8 {
+        let v = u64::from_le_bytes(b[q * 8..q * 8 + 8].try_into().unwrap()) as usize;
+        if v > e - 0x10000 && v < e + 0x1000 {
+            t.push_str(&format!("[E-{:#x}] ", e - v));
+        } else {
+            t.push_str(&format!("{} ", hx(&b[q * 8..q * 8 + 8]).replace(' ', "")));
+        }
+    }
+    t
+}
+
+#[test]
+#[ignore]
+fn oracle_dcc_cases_buildres() {
+    let Ok(path) = std::env::var("TOMBOX_DCC_BUILDRES") else { return };
+    let ids: Vec<u64> = std::fs::read_to_string(&path).unwrap().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+    let _g = crate::oracle::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let o = crate::oracle::oracle().expect("console xg_xs.dll");
+    let b = build_of(&o);
+    println!("buildres build {}", b.name);
+    let pe = unsafe { RspProbe::new(o.h, b.enc_chk) };
+    let cv = unsafe { Snap::new(o.h, b.convs, o.h + b.conv) };
+    let rs: Vec<Snap> = b.relays.iter().map(|&s| unsafe { Snap::new(o.h, s, o.h + b.relay) }).collect();
+    let mut agg: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for &id in &ids {
+        let c = case(id);
+        if !c.enc {
+            continue;
+        }
+        for th in [false, true] {
+            unsafe {
+                cv.reset();
+                for r in &rs {
+                    r.reset();
+                }
+            }
+            let h = o.h;
+            let cc = case(id);
+            let _ = if th { std::thread::spawn(move || console_case(h, &cc)).join().unwrap() } else { console_case(h, &cc) };
+            let e = unsafe { pe.rsp() } + 0x48;
+            let n = unsafe { cv.count() } as usize;
+            for k in 0..n.min(SLOTS) {
+                *agg.entry(format!("conv {}", erel(unsafe { &cv.slot(k)[SNAP - 0x88..SNAP - 0x48] }, e))).or_insert(0) += 1;
+            }
+            for (i, r) in rs.iter().enumerate() {
+                if unsafe { r.count() } > 0 {
+                    *agg.entry(format!("relay{} blk0 {}", i + 1, erel(unsafe { &r.slot(0)[SNAP - 0x88..SNAP - 0x48] }, e))).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    let mut v: Vec<_> = agg.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    for (k, n) in v.iter().filter(|x| x.0.starts_with("conv")).take(8) {
+        println!("buildres {:4} {}", n, k);
     }
 }
